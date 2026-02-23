@@ -1,10 +1,54 @@
 <template>
     <div class="course-container">
-        <div v-if="filterOptions.length > 0 && !groupMode.active" class="filter-container">
+        <section class="learning-hero">
+            <div class="hero-content">
+                <p class="hero-kicker">Course Workspace</p>
+                <h1 class="hero-title">{{ groupMode.active ? groupMode.title : "我的课程学习台" }}</h1>
+                <p class="hero-subtitle">
+                    {{ groupMode.active ? "分组内课程已展开，可继续学习或下载离线内容。" : "按进度管理课程，快速回到最近学习章节。" }}
+                </p>
+
+                <div class="hero-actions">
+                    <el-button type="primary" round @click="continueLearning">
+                        {{ normalCourseCount > 0 ? "继续学习" : "浏览课程" }}
+                    </el-button>
+                    <el-button round :icon="RefreshRight" @click="refreshList">刷新列表</el-button>
+                    <el-button round :icon="Download" @click="goDownloadSetting">下载设置</el-button>
+                </div>
+            </div>
+
+            <div class="hero-stats">
+                <article class="stat-card">
+                    <span>课程数</span>
+                    <strong>{{ normalCourseCount }}</strong>
+                </article>
+                <article class="stat-card">
+                    <span>分组数</span>
+                    <strong>{{ groupCourseCount }}</strong>
+                </article>
+                <article class="stat-card">
+                    <span>平均进度</span>
+                    <strong>{{ avgProgress }}%</strong>
+                </article>
+                <article class="stat-card">
+                    <span>筛选条件</span>
+                    <strong>{{ activeFilterName }}</strong>
+                </article>
+            </div>
+        </section>
+
+        <div v-if="groupMode.active" class="group-header">
+            <el-button type="primary" link @click="exitGroup">
+                <el-icon class="el-icon--left"><ArrowLeft /></el-icon>返回全部课程
+            </el-button>
+            <span class="group-title">{{ groupMode.title }}</span>
+        </div>
+
+        <div v-if="hasFilters && !groupMode.active" class="filter-container">
             <el-radio-group v-model="currentFilter" @change="handleFilterChange" size="small">
-                <el-radio-button 
-                    v-for="item in filterOptions" 
-                    :key="item.filter" 
+                <el-radio-button
+                    v-for="item in filterOptions"
+                    :key="item.filter"
                     :label="item.filter"
                 >
                     {{ item.name }}
@@ -12,18 +56,22 @@
                 </el-radio-button>
             </el-radio-group>
         </div>
-        <div v-if="groupMode.active" class="group-header">
-            <el-button type="primary" link @click="exitGroup">
-                <el-icon class="el-icon--left"><ArrowLeft /></el-icon>返回
-            </el-button>
-            <span class="group-title">{{ groupMode.title }}</span>
-        </div>
 
-        <div v-loading="initLoading" class="course-grid-container" v-infinite-scroll="loadMore" :infinite-scroll-disabled="disabled" :infinite-scroll-immediate="false">
-            <div v-if="tableData.list && tableData.list.length > 0" class="course-grid">
-                <div v-for="item in tableData.list" :key="item.id" class="course-card" @click="item.is_group ? enterGroup(item) : gotoArticleList(item)">
+        <div
+            v-loading="initLoading"
+            class="course-grid-container"
+            v-infinite-scroll="loadMore"
+            :infinite-scroll-disabled="disabled"
+            :infinite-scroll-immediate="false"
+        >
+            <div v-if="courseList.length > 0" class="course-grid">
+                <div
+                    v-for="item in courseList"
+                    :key="item.id"
+                    class="course-card"
+                    @click="item.is_group ? enterGroup(item) : gotoArticleList(item)"
+                >
                     <div class="card-cover">
-                        <!-- 分组封面拼图 -->
                         <div v-if="item.is_group && item.group_books && item.group_books.length > 0" class="group-cover-grid">
                             <div v-for="(book, index) in item.group_books.slice(0, 4)" :key="book.id || index" class="group-grid-item">
                                 <el-image :src="book.icon" fit="cover" loading="lazy" class="grid-image">
@@ -34,16 +82,16 @@
                                     </template>
                                 </el-image>
                             </div>
-                            <div v-for="n in (4 - Math.min(item.group_books.length, 4))" :key="'ph-'+n" class="group-grid-item">
+                            <div v-for="n in (4 - Math.min(item.group_books.length, 4))" :key="'ph-' + n" class="group-grid-item">
                                 <div class="grid-placeholder bg-gray">
                                     <el-icon><Picture /></el-icon>
                                 </div>
                             </div>
                         </div>
 
-                        <el-image 
-                            v-else-if="item.icon" 
-                            :src="item.icon" 
+                        <el-image
+                            v-else-if="item.icon"
+                            :src="item.icon"
                             fit="cover"
                             loading="lazy"
                         >
@@ -57,42 +105,60 @@
                             <el-icon v-if="item.is_group" :size="40"><Folder /></el-icon>
                             <span v-else>无封面</span>
                         </div>
-                        
-                        <!-- 悬停遮罩层 (仅非分组显示操作) -->
+
                         <div v-if="!item.is_group" class="card-overlay" @click.stop>
                             <div class="overlay-actions">
                                 <el-button circle type="primary" :icon="View" @click="handleProd(item.enid)" title="详情" />
                                 <el-button circle type="success" :icon="Download" @click="openDownloadDialog(item)" title="下载" />
                             </div>
                         </div>
-                        
-                        <!-- 分组标识 -->
-                        <div v-if="item.is_group" class="group-badge">
-                            <el-icon><Folder /></el-icon>
-                            <span>分组</span>
+
+                        <div class="card-badges">
+                            <span v-if="item.is_group" class="group-badge">
+                                <el-icon><Folder /></el-icon>
+                                <span>分组</span>
+                            </span>
+                            <span v-else-if="(item.progress || 0) >= 80" class="progress-badge">高进度</span>
                         </div>
                     </div>
-                    
+
                     <div class="card-content">
                         <h3 class="card-title" :title="item.title">{{ item.title }}</h3>
                         <div class="card-meta">
                             <span v-if="item.is_group" class="meta-info">{{ item.course_num || 0 }} 本课程</span>
                             <span v-else class="meta-info">已更 {{ item.publish_num || 0 }}/{{ item.course_num || 0 }}</span>
-                            
-                            <span v-if="!item.is_group" class="meta-progress">{{ item.progress || 0 }}%</span>
+
+                            <span v-if="!item.is_group" class="meta-progress">{{ safePercent(item.progress) }}%</span>
                         </div>
                         <div v-if="!item.is_group" class="progress-bar">
-                             <div class="progress-fill" :style="{ width: (item.progress || 0) + '%' }"></div>
+                             <div class="progress-fill" :style="{ width: safePercent(item.progress) + '%' }"></div>
                         </div>
                     </div>
                 </div>
             </div>
-            <el-empty v-else description="暂无课程" />
+
+            <div v-else class="empty-state">
+                <div class="empty-icon">
+                    <el-icon><Compass /></el-icon>
+                </div>
+                <h3>课程列表暂时为空</h3>
+                <p v-if="isLoggedIn">可以切换筛选条件，或稍后刷新列表。</p>
+                <p v-else>登录后可同步你的已购课程与学习进度。</p>
+                <div class="empty-actions">
+                    <el-button v-if="!isLoggedIn" type="primary" round @click="pushLogin">立即登录</el-button>
+                    <el-button round @click="refreshList">刷新</el-button>
+                    <el-button round @click="goDownloadSetting">设置下载目录</el-button>
+                </div>
+            </div>
         </div>
-    
     </div>
 
-    <course-info v-if="dialogVisible" :enid= "prodEnid" :dialog-visible="dialogVisible" @close="closeDialog"></course-info>
+    <course-info
+        v-if="dialogVisible"
+        :enid="prodEnid"
+        :dialog-visible="dialogVisible"
+        @close="closeDialog"
+    />
     <download-dialog
         v-if="dialogDownloadVisible"
         :dialog-visible="dialogDownloadVisible"
@@ -100,22 +166,22 @@
         :prod-type="66"
         :download-id="downloadId"
         :en-id="downloadEnId"
-        @close="closeDownloadDialog">
-    </download-dialog>
+        @close="closeDownloadDialog"
+    />
 </template>
-  
+
 <script lang="ts" setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, View, Download, Picture, Folder } from '@element-plus/icons-vue'
-import {CourseList, CourseCategory, CourseGroupList, SetDir, GetNavbar} from '../../wailsjs/go/backend/App'
+import { ArrowLeft, View, Download, Picture, Folder, RefreshRight, Compass } from '@element-plus/icons-vue'
+import { CourseList, CourseCategory, CourseGroupList, SetDir, GetNavbar } from '../../wailsjs/go/backend/App'
 import { services } from '../../wailsjs/go/models'
-import { userStore } from '../stores/user';
-import { settingStore } from '../stores/setting';
-import { useAppRouter } from '../composables/useRouter';
+import { userStore } from '../stores/user'
+import { settingStore } from '../stores/setting'
+import { useAppRouter } from '../composables/useRouter'
 import CourseInfo from '../components/CourseInfo.vue'
-import DownloadDialog from "../components/DownloadDialog.vue";
-import { Local } from '../utils/storage';
+import DownloadDialog from "../components/DownloadDialog.vue"
+import { Local } from '../utils/storage'
 
 const store = userStore()
 const setStore = settingStore()
@@ -126,9 +192,8 @@ const initLoading = ref(true)
 const page = ref(1)
 const total = ref(0)
 const outerTotal = ref(0)
-const pageSize = ref(20) // Increase page size for better scrolling experience
+const pageSize = ref(20)
 const lastPageSize = ref(20)
-const searchInfo = ref({})
 const currentFilter = ref('all')
 const filterOptions = ref<any[]>([])
 
@@ -142,63 +207,50 @@ const groupMode = reactive({
 })
 
 const dialogDownloadVisible = ref(false)
-const downloadType = ref(1)
 const downloadId = ref(0)
 const downloadEnId = ref('')
 const downloadTypeOptions = [
-    { value: 1, label: "MP3" }, { value: 2, label: "PDF" }, { value: 3, label: "Markdown" }
+    { value: 1, label: "MP3" },
+    { value: 2, label: "PDF" },
+    { value: 3, label: "Markdown" },
+    { value: 4, label: "MP4" },
 ]
 
-let tableData = reactive(new services.CourseList)
-let courseInfo = reactive(new services.CourseInfo)
-courseInfo.class_info = new services.ClassInfo
-courseInfo.intro_article = new services.ArticleIntro
+let tableData = reactive(new services.CourseList())
 
-onMounted(() => {
-    GetNavbar().then((res: any) => {
-        if (res && res.list) {
-            const opts: any[] = []
-            res.list.forEach((item: any) => {
-                if (item.category === "bauhinia" && item.children) {
-                    opts.push(...item.children)
-                }
-            })
-            filterOptions.value = opts
-        }
-    })
-
-    CourseCategory().then(result => {
-        result.forEach((item, key) => {
-            if (item.category == "bauhinia") {
-                outerTotal.value = item.count
-                if (!groupMode.active) total.value = item.count
-            }
-        })
-    }).catch((error) => {
-        if (error == '401 Unauthorized') {
-            store.user = null
-            pushLogin()
-        }
-        Local.remove("cookies")
-        Local.remove("userStore")
-    })
+const isLoggedIn = computed(() => Boolean(Local.get("cookies")))
+const hasFilters = computed(() => filterOptions.value.length > 0)
+const courseList = computed(() => tableData.list || [])
+const normalCourses = computed(() => courseList.value.filter((item: any) => !item?.is_group))
+const normalCourseCount = computed(() => normalCourses.value.length)
+const groupCourseCount = computed(() => courseList.value.filter((item: any) => Boolean(item?.is_group)).length)
+const avgProgress = computed(() => {
+    if (normalCourses.value.length === 0) return 0
+    const sum = normalCourses.value.reduce((acc: number, item: any) => acc + safePercent(item?.progress), 0)
+    return Math.round(sum / normalCourses.value.length)
+})
+const activeFilterName = computed(() => {
+    if (groupMode.active) return "分组模式"
+    if (currentFilter.value === 'all') return "全部"
+    const match = filterOptions.value.find((item: any) => item.filter === currentFilter.value)
+    return String(match?.name || "筛选中")
 })
 
+const safePercent = (val: any) => {
+    const n = Number(val || 0)
+    if (!Number.isFinite(n)) return 0
+    return Math.max(0, Math.min(100, Math.round(n)))
+}
+
 const noMore = computed(() => {
-    const currentCount = tableData.list ? tableData.list.length : 0
+    const currentCount = courseList.value.length
     if (groupMode.active || currentFilter.value !== 'all') {
-        const total = tableData.total || 0
-        if (total > 0) {
-            return currentCount >= total
-        }
-        if (tableData.is_more === 0) {
-            return true
-        }
+        const currentTotal = Number(tableData.total || 0)
+        if (currentTotal > 0) return currentCount >= currentTotal
+        if (tableData.is_more === 0) return true
         return lastPageSize.value < pageSize.value
     }
-    if (outerTotal.value > 0) {
-        return currentCount >= outerTotal.value
-    }
+    if (outerTotal.value > 0) return currentCount >= outerTotal.value
     return lastPageSize.value < pageSize.value
 })
 
@@ -210,65 +262,116 @@ const loadMore = () => {
     getTableData(true)
 }
 
+const loadFilters = async () => {
+    try {
+        const res = await GetNavbar()
+        const opts: any[] = []
+        if (res && (res as any).list) {
+            ;(res as any).list.forEach((item: any) => {
+                if (item.category === "bauhinia" && item.children) {
+                    opts.push(...item.children)
+                }
+            })
+        }
+        filterOptions.value = opts
+    } catch {
+    }
+}
+
+const loadCategoryTotal = async () => {
+    try {
+        const result = await CourseCategory()
+        result.forEach((item) => {
+            if (item.category == "bauhinia") {
+                outerTotal.value = item.count
+                if (!groupMode.active) total.value = item.count
+            }
+        })
+    } catch (error: any) {
+        const message = String(error || '')
+        if (message.includes('401')) {
+            store.user = null
+            pushLogin()
+        }
+        Local.remove("cookies")
+        Local.remove("userStore")
+    }
+}
+
 const handleFilterChange = () => {
-    console.log('Course filter changed:', currentFilter.value)
     if (currentFilter.value === "all") {
         groupMode.active = false
         groupMode.groupId = 0
         groupMode.title = ''
     }
     page.value = 1
-    tableData.list = [] // Clear list to avoid confusion
+    tableData.list = []
     getTableData()
 }
 
 const getTableData = async (append = false) => {
-    console.log('Course getTableData:', { append, currentFilter: currentFilter.value, groupMode: groupMode.active })
     loading.value = true
     if (!append) initLoading.value = true
-    
-    let fetcher;
-    if (groupMode.active) {
-        fetcher = CourseGroupList("bauhinia", "study", currentFilter.value,groupMode.groupId, page.value, pageSize.value)
-    } else {
-        fetcher = CourseList("bauhinia", "study", currentFilter.value, page.value, pageSize.value)
-    }
 
-    await fetcher.then((table) => {
-        loading.value = false
-        initLoading.value = false
-        
+    try {
+        const table = groupMode.active
+            ? await CourseGroupList("bauhinia", "study", currentFilter.value, groupMode.groupId, page.value, pageSize.value)
+            : await CourseList("bauhinia", "study", currentFilter.value, page.value, pageSize.value)
+
         const fetchedList = table.list || []
         lastPageSize.value = fetchedList.length
-        
+
         if (append) {
-            if (fetchedList.length > 0) {
-                tableData.list.push(...fetchedList)
-            }
+            if (fetchedList.length > 0) tableData.list.push(...fetchedList)
         } else {
             Object.assign(tableData, table)
         }
-        
-        if (groupMode.active || currentFilter.value !== 'all') {
-            total.value = table.total || 0
+
+        total.value = (groupMode.active || currentFilter.value !== 'all')
+            ? Number(table.total || 0)
+            : outerTotal.value
+    } catch (error: any) {
+        const message = String(error || '')
+        if (message.includes('401')) {
+            store.user = null
+            pushLogin()
         } else {
-            total.value = outerTotal.value
+            ElMessage({ message, type: 'warning' })
         }
-    }).catch((error) => {
+    } finally {
         loading.value = false
         initLoading.value = false
-        ElMessage({
-            message: error,
-            type: 'warning'
-        })
-    })
+    }
 }
 
-getTableData()
+const refreshList = () => {
+    page.value = 1
+    tableData.list = []
+    getTableData()
+}
 
-const handleProd = (enid:string)=>{
-  prodEnid.value = enid
-  dialogVisible.value = true
+const continueLearning = () => {
+    const target = [...normalCourses.value]
+        .sort((a: any, b: any) => safePercent(b?.progress) - safePercent(a?.progress))[0]
+    if (target) {
+        gotoArticleList(target)
+        return
+    }
+    const first = courseList.value[0]
+    if (first?.is_group) {
+        enterGroup(first)
+        return
+    }
+    if (first) gotoArticleList(first)
+}
+
+const goDownloadSetting = () => {
+    pushSetting()
+}
+
+const handleProd = (enid: string) => {
+    prodEnid.value = enid
+    dialogVisible.value = true
 }
 
 const gotoArticleList = (row: any) => {
@@ -281,14 +384,13 @@ const gotoArticleList = (row: any) => {
 
 const enterGroup = (row: any) => {
     const groupId = Number(row?.group_id || row?.id || 0)
-
     if (!groupId) return
 
     groupMode.active = true
     groupMode.groupId = groupId
     groupMode.title = String(row?.title || '')
     page.value = 1
-    tableData.list = [] 
+    tableData.list = []
     getTableData()
 }
 
@@ -301,11 +403,7 @@ const exitGroup = () => {
     getTableData()
 }
 
-const openDialog = () => {
-    dialogVisible.value = true
-}
 const closeDialog = () => {
-    //   initForm()
     dialogVisible.value = false
 }
 
@@ -320,10 +418,7 @@ const openDownloadDialog = (row: any) => {
         })
         pushSetting()
     } else {
-        SetDir([setStore.getDownloadDir,
-            setStore.getFfmpegDirDir,
-            setStore.getWkDir]).then(() => {
-        }).catch((error) => {
+        SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).catch((error) => {
             ElMessage({
                 message: error,
                 type: 'warning'
@@ -331,45 +426,125 @@ const openDownloadDialog = (row: any) => {
         })
     }
 }
+
 const closeDownloadDialog = () => {
-    //   initForm()
-    downloadType.value = 1
     dialogDownloadVisible.value = false
 }
+
+onMounted(async () => {
+    await Promise.all([loadFilters(), loadCategoryTotal()])
+    getTableData()
+})
 </script>
-  
+
 <style scoped>
 .course-container {
     height: 100%;
     display: flex;
     flex-direction: column;
-    padding: 20px;
+    gap: 16px;
+    padding: 18px;
     box-sizing: border-box;
+}
+
+.learning-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 14px;
+    padding: 20px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--border-soft) 82%, transparent);
+    background:
+        radial-gradient(360px 180px at 14% 0%, color-mix(in srgb, var(--accent-color) 12%, transparent) 0%, transparent 72%),
+        radial-gradient(260px 160px at 90% 0%, color-mix(in srgb, var(--primary-color) 20%, transparent) 0%, transparent 74%),
+        color-mix(in srgb, var(--surface-glass) 74%, transparent);
+    box-shadow: 0 12px 28px rgba(8, 18, 32, 0.08);
+    backdrop-filter: blur(10px);
+}
+
+.hero-kicker {
+    margin: 0;
+    color: var(--accent-color);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.hero-title {
+    margin: 8px 0 0;
+    font-size: 30px;
+    line-height: 1.15;
+    color: var(--text-primary);
+    font-family: var(--font-family-display);
+}
+
+.hero-subtitle {
+    margin: 10px 0 0;
+    max-width: 760px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.hero-actions {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.hero-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.stat-card {
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
+    background: color-mix(in srgb, var(--card-bg) 84%, transparent);
+}
+
+.stat-card span {
+    display: block;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.stat-card strong {
+    display: block;
+    margin-top: 4px;
+    font-size: 18px;
+    color: var(--text-primary);
+    line-height: 1.2;
 }
 
 .group-header {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 16px;
-    padding-top: 10px;
+    margin-top: -4px;
 }
 
 .group-title {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
 }
 
 .filter-container {
-    margin-bottom: 20px;
     overflow-x: auto;
     white-space: nowrap;
-    padding-bottom: 4px;
+    padding-bottom: 6px;
 }
+
 .filter-container::-webkit-scrollbar {
     height: 4px;
 }
+
 .filter-container::-webkit-scrollbar-thumb {
     background: var(--border-color);
     border-radius: 2px;
@@ -377,48 +552,48 @@ const closeDownloadDialog = () => {
 
 .course-grid-container {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding-bottom: 20px;
-    /* 隐藏滚动条但保留功能 - 清新风格 */
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE 10+ */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 .course-grid-container::-webkit-scrollbar {
-    display: none; /* Chrome/Safari */
+    display: none;
 }
 
 .course-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 20px;
-    padding: 4px; /* 防止阴影被切 */
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 16px;
+    padding: 4px;
 }
 
 .course-card {
-    background: var(--card-bg, #fff);
-    border-radius: 12px;
-    box-shadow: var(--shadow-soft, 0 2px 12px rgba(0, 0, 0, 0.08));
+    background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+    border-radius: 14px;
+    box-shadow: var(--shadow-soft);
     overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
     cursor: pointer;
     position: relative;
-    border: 1px solid var(--border-soft, #ebeef5);
+    border: 1px solid color-mix(in srgb, var(--border-soft) 82%, transparent);
     display: flex;
     flex-direction: column;
 }
 
 .course-card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-medium, 0 8px 24px rgba(0, 0, 0, 0.12));
-    border-color: transparent;
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-medium);
+    border-color: color-mix(in srgb, var(--accent-color) 26%, transparent);
 }
 
 .card-cover {
     position: relative;
     width: 100%;
     aspect-ratio: 1;
-    background-color: var(--fill-color-light, #f5f7fa);
+    background-color: var(--fill-color-light);
     overflow: hidden;
 }
 
@@ -426,14 +601,15 @@ const closeDownloadDialog = () => {
     width: 100%;
     height: 100%;
     display: block;
-    transition: transform 0.5s ease;
+    transition: transform 0.45s ease;
 }
 
 .course-card:hover .card-cover .el-image {
     transform: scale(1.05);
 }
 
-.image-placeholder, .no-cover {
+.image-placeholder,
+.no-cover {
     width: 100%;
     height: 100%;
     display: flex;
@@ -446,16 +622,13 @@ const closeDownloadDialog = () => {
 
 .card-overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.4);
+    inset: 0;
+    background: rgba(0, 0, 0, 0.42);
     display: flex;
     align-items: center;
     justify-content: center;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.25s ease;
     backdrop-filter: blur(2px);
 }
 
@@ -465,28 +638,45 @@ const closeDownloadDialog = () => {
 
 .overlay-actions {
     display: flex;
-    gap: 16px;
-    transform: translateY(10px);
-    transition: transform 0.3s ease;
+    gap: 14px;
+    transform: translateY(8px);
+    transition: transform 0.25s ease;
 }
 
 .course-card:hover .overlay-actions {
     transform: translateY(0);
 }
 
-.group-badge {
+.card-badges {
     position: absolute;
     top: 8px;
+    left: 8px;
     right: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: none;
+}
+
+.group-badge {
     background: rgba(0, 0, 0, 0.6);
     color: #fff;
     padding: 4px 8px;
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 12px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 4px;
     backdrop-filter: blur(4px);
+}
+
+.progress-badge {
+    margin-left: auto;
+    background: color-mix(in srgb, var(--accent-color) 80%, #fff 20%);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-size: 12px;
 }
 
 .group-cover-grid {
@@ -496,13 +686,13 @@ const closeDownloadDialog = () => {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 1fr 1fr;
     gap: 2px;
-    background: var(--fill-color-light, #f5f7fa);
+    background: var(--fill-color-light);
 }
 
 .group-grid-item {
     position: relative;
     overflow: hidden;
-    background: var(--fill-color-light, #f5f7fa);
+    background: var(--fill-color-light);
     width: 100%;
     height: 100%;
 }
@@ -519,20 +709,19 @@ const closeDownloadDialog = () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-tertiary, #909399);
-    background: var(--fill-color-light, #f5f7fa);
+    color: var(--text-tertiary);
+    background: var(--fill-color-light);
 }
 
 .bg-gray {
-    background: var(--fill-color, #f0f2f5);
+    background: var(--fill-color);
 }
 
 .card-content {
-    padding: 12px 16px;
+    padding: 12px 14px 14px;
     flex: 1;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
 }
 
 .card-title {
@@ -557,21 +746,116 @@ const closeDownloadDialog = () => {
 }
 
 .meta-progress {
-    color: var(--accent-color, #ff6b00);
-    font-weight: 500;
+    color: var(--accent-color);
+    font-weight: 600;
 }
 
 .progress-bar {
-    height: 4px;
-    background: var(--fill-color, #f0f2f5);
-    border-radius: 2px;
+    height: 5px;
+    background: color-mix(in srgb, var(--fill-color) 84%, transparent);
+    border-radius: 4px;
     overflow: hidden;
 }
 
 .progress-fill {
     height: 100%;
-    background: var(--accent-color, #ff6b00);
-    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-color) 0%, color-mix(in srgb, var(--accent-color) 60%, var(--primary-color) 40%) 100%);
+    border-radius: 4px;
     transition: width 0.3s ease;
+}
+
+.empty-state {
+    margin-top: 8px;
+    min-height: 360px;
+    border-radius: 16px;
+    border: 1px dashed color-mix(in srgb, var(--border-soft) 72%, transparent);
+    background: color-mix(in srgb, var(--card-bg) 86%, transparent);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+}
+
+.empty-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    color: var(--accent-color);
+    background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+
+.empty-state h3 {
+    margin: 14px 0 8px;
+    font-size: 20px;
+    color: var(--text-primary);
+    font-family: var(--font-family-display);
+}
+
+.empty-state p {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.empty-actions {
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+}
+
+@media (max-width: 1400px) {
+    .course-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1180px) {
+    .learning-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-stats {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .course-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 880px) {
+    .course-container {
+        padding: 12px;
+    }
+
+    .hero-title {
+        font-size: 24px;
+    }
+
+    .hero-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .course-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+}
+
+@media (max-width: 620px) {
+    .hero-actions :deep(.el-button) {
+        margin: 0;
+    }
+
+    .course-grid {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

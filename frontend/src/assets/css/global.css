@@ -1,7 +1,8 @@
 /* Global CSS Variables - Fresh Efficiency Theme */
 :root {
   /* Fonts */
-  --font-family-base: 'PingFang SC', 'Helvetica Neue', Helvetica, 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+  --font-family-base: "Nunito", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", "Helvetica Neue", Arial, sans-serif;
+  --font-family-display: "Nunito", "LXGW WenKai Lite", "PingFang SC", sans-serif;
   --font-family-mono: 'JetBrainsMono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --font-family-wenkai: "LXGW WenKai Lite", sans-serif;
 
@@ -16,6 +17,9 @@
   --bg-color: #f5f7fa;
   --card-bg-light: #ffffff;
   --card-bg-dark: #1d1e1f;
+  --surface-glass: rgba(255, 255, 255, 0.78);
+  --hero-gradient-1: #fff7e6;
+  --hero-gradient-2: #e8f3ff;
   
   /* Text */
   --text-primary: #303133;
@@ -75,6 +79,9 @@ html.theme-dark {
   --fill-color: #2a3d54;
   --fill-color-light: #262727;
   --fill-color-dark: #1f2022;
+  --surface-glass: rgba(23, 27, 35, 0.7);
+  --hero-gradient-1: #1f1d2b;
+  --hero-gradient-2: #102536;
   
   --text-primary: #E5EAF3;
   --text-regular: #A3A6AD;
@@ -91,7 +98,10 @@ html.theme-dark {
 
 body {
   font-family: var(--font-family-base);
-  background-color: var(--bg-color);
+  background:
+    radial-gradient(1200px 700px at 10% -10%, color-mix(in srgb, var(--hero-gradient-1) 70%, transparent) 0%, transparent 68%),
+    radial-gradient(1400px 800px at 100% 0%, color-mix(in srgb, var(--hero-gradient-2) 62%, transparent) 0%, transparent 72%),
+    var(--bg-color);
   color: var(--text-primary);
   margin: 0;
   padding: 0;

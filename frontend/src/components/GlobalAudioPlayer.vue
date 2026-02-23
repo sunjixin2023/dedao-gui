@@ -19,6 +19,7 @@
         <div class="top-row">
           <div class="title" :title="store.currentTrack?.title ?? ''">{{ store.currentTrack?.title }}</div>
           <div class="meta">
+            <span v-if="store.context?.title" class="ctx" :title="store.context?.title">{{ store.context?.title }}</span>
             <span class="idx">{{ store.currentIndex + 1 }}/{{ store.queue.length }}</span>
             <el-dropdown @command="setRate">
               <span class="rate">{{ playbackRate }}x</span>
@@ -409,9 +410,15 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   z-index: 9999;
-  background: var(--bg-color);
-  border-top: 1px solid var(--border-color-lighter);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--card-bg) 92%, white 8%) 0%,
+    color-mix(in srgb, var(--fill-color-light) 82%, white 18%) 100%
+  );
+  border-top: 1px solid var(--border-soft);
   padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(12px);
 }
 
 #global-audio {
@@ -426,6 +433,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  max-width: 1260px;
+  margin: 0 auto;
 }
 
 .cover {
@@ -434,8 +443,10 @@ onUnmounted(() => {
   border-radius: 12px;
   overflow: hidden;
   flex: 0 0 auto;
-  background: var(--border-color-lighter);
+  background: linear-gradient(145deg, var(--fill-color-light), var(--fill-color));
   cursor: pointer;
+  border: 1px solid var(--border-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .cover-img {
@@ -466,8 +477,8 @@ onUnmounted(() => {
 .title {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text-color);
   white-space: nowrap;
   overflow: hidden;
@@ -477,8 +488,23 @@ onUnmounted(() => {
 .meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
+}
+
+.ctx {
+  max-width: 180px;
+  height: 22px;
+  line-height: 22px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--primary-color) 8%, white 92%);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 24%, white 76%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collapse-btn {
@@ -496,7 +522,8 @@ onUnmounted(() => {
 
 .rate {
   font-size: 12px;
-  color: var(--text-color-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
   cursor: pointer;
   user-select: none;
 }
@@ -562,5 +589,11 @@ onUnmounted(() => {
   color: var(--text-color);
   font-size: 14px;
   line-height: 20px;
+}
+
+@media (max-width: 920px) {
+  .ctx {
+    display: none;
+  }
 }
 </style>

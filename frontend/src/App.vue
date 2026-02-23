@@ -86,11 +86,11 @@ const elementTheme = computed(() => store.isDark ? 'dark' : 'light')
 
 <template>
   <el-config-provider :locale="zhCn" :theme="elementTheme">
-    <el-container>
-      <el-header>
+    <el-container class="app-shell">
+      <el-header class="app-header">
         <Menu />
       </el-header>
-      <el-main :style="mainStyle">
+      <el-main class="app-main" :style="mainStyle">
         <router-view></router-view>
       </el-main>
       <GlobalAudioPlayer />
@@ -110,30 +110,59 @@ body {
   }
 }
 
-
-// #app {
-//   // position: relative;
-//   // width: 900px;
-//   // height: 520px;
-// }
-
-.el-container {
+.app-shell {
+  position: relative;
   height: 100%;
-  background-color: var(--bg-color);
+  overflow: hidden;
+  background:
+    radial-gradient(1100px 560px at -5% -8%, color-mix(in srgb, var(--hero-gradient-1) 86%, transparent) 0%, transparent 64%),
+    radial-gradient(900px 500px at 96% -10%, color-mix(in srgb, var(--hero-gradient-2) 82%, transparent) 0%, transparent 62%),
+    var(--bg-color);
   transition: background-color 0.3s ease;
 }
 
-.el-header {
-  position: relative;
+.app-shell::before,
+.app-shell::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(40px);
+  opacity: 0.35;
+}
+
+.app-shell::before {
+  width: 340px;
+  height: 340px;
+  background: color-mix(in srgb, var(--accent-color) 30%, transparent);
+  top: -160px;
+  right: -120px;
+}
+
+.app-shell::after {
+  width: 280px;
+  height: 280px;
+  background: color-mix(in srgb, var(--primary-color) 36%, transparent);
+  left: -120px;
+  bottom: -140px;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   height: 60px;
-  padding: 0 0;
-  background-color: var(--bg-color);
-  border-bottom: 1px solid var(--border-color-lighter);
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  padding: 0 14px 0 10px;
+  background: color-mix(in srgb, var(--surface-glass) 88%, transparent);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color-lighter) 75%, transparent);
+  box-shadow: 0 10px 24px rgba(12, 18, 28, 0.06);
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 
   .el-menu {
     height: auto;
@@ -174,13 +203,16 @@ body {
 
 }
 
-.el-main {
+.app-main {
+  position: relative;
+  z-index: 1;
   overflow: hidden;
   color: var(--text-color-secondary);
   width: 100%;
   height: 100%;
+  padding-top: 12px;
   padding-bottom: calc(var(--global-player-height, 0px) + 10px);
-  background-color: var(--bg-color);
+  background-color: transparent;
   transition: background-color 0.3s ease, color 0.3s ease;
 
   .el-pagination {
@@ -200,5 +232,11 @@ body {
   }
 
 
+}
+
+@media (max-width: 1100px) {
+  .app-header {
+    padding-right: 8px;
+  }
 }
 </style>
