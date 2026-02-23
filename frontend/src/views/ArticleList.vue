@@ -50,7 +50,7 @@
                         </el-image>
                         <div class="card-overlay" @click.stop>
                             <div class="overlay-actions">
-                                <el-tooltip content="播放" :show-after="500">
+                                <el-tooltip :content="item.video_status == 1 ? '观看' : '播放'" :show-after="500">
                                     <el-button circle type="primary" :icon="VideoPlay" @click="handlePlay(item)" v-if="item.audio_alias_ids.length || item.video_status"/>
                                 </el-tooltip>
                                 <el-tooltip content="文稿" :show-after="500">
@@ -69,6 +69,11 @@
                     <div class="card-content">
                         <div class="card-header">
                             <h3 class="card-title" :title="item.title">{{ item.title }}</h3>
+                            <div class="card-tags">
+                                <el-tag v-if="item.video_status == 1" size="small" type="danger" effect="light">视频</el-tag>
+                                <el-tag v-if="item.audio_alias_ids?.length" size="small" type="success" effect="light">音频</el-tag>
+                                <el-tag size="small" type="info" effect="plain">文稿</el-tag>
+                            </div>
                         </div>
                         
                         <div class="card-meta">
@@ -155,9 +160,18 @@ const downloadType = ref(1)
 const downloadId = ref(0)
 const downloadaId = ref(0)
 const downloadEnId = ref('')
-const downloadTypeOptions = [
-    {value: 1, label: "MP3"}, {value: 2, label: "PDF"}, {value: 3, label: "Markdown"}
+const defaultDownloadTypeOptions = [
+    {value: 1, label: "MP3"},
+    {value: 2, label: "PDF"},
+    {value: 3, label: "Markdown"},
 ]
+const videoDownloadTypeOptions = [
+    {value: 4, label: "MP4"},
+    {value: 1, label: "MP3"},
+    {value: 2, label: "PDF"},
+    {value: 3, label: "Markdown"},
+]
+const downloadTypeOptions = ref(defaultDownloadTypeOptions)
 
 const courseDetailVisible = ref(false)
 
@@ -244,6 +258,11 @@ const canDownload = (row: services.ArticleIntro) => {
 }
 
 const handlePlay = (row: any) => {
+    if (Number(row?.video_status) === 1) {
+        gotoArticleVideo(row)
+        return
+    }
+
     pStore.setContext({ key: `courseArticle:${String(enid.value ?? '')}`, title: String(breadcrumbTitle.value ?? '') })
     const queue = (tableData.article_list || []).map(buildTrack).filter((t): t is PlayerTrack => !!t)
     const target = buildTrack(row)
@@ -282,8 +301,6 @@ const loadMoreArticles = async () => {
     try {
         // 使用 maxId 分页
         const res = await ArticleList(enid.value, "", pageSize.value, maxId.value, isReverse.value)
-        console.log("xxxxxxxxxxxxxxxx")
-        console.log(res)
         // 如果返回数据为空，直接 finished
         if (!res.article_list || res.article_list.length === 0) {
             finished.value = true
@@ -325,6 +342,7 @@ const openDownloadDialog = (row: any) => {
     downloadId.value = row.class_id
     downloadaId.value = row.id
     downloadEnId.value = row.class_enid
+    downloadTypeOptions.value = Number(row?.video_status) === 1 ? videoDownloadTypeOptions : defaultDownloadTypeOptions
     dialogDownloadVisible.value = true
     if (setStore.getDownloadDir == "") {
         ElMessage({
@@ -346,6 +364,7 @@ const openDownloadDialog = (row: any) => {
 }
 const closeDownloadDialog = () => {
     downloadType.value = 1
+    downloadTypeOptions.value = defaultDownloadTypeOptions
     dialogDownloadVisible.value = false
 }
 
@@ -558,6 +577,14 @@ const gotoArticleVideo = (row: any) => {
     -webkit-line-clamp: 2;
     overflow: hidden;
     height: 48px;
+}
+
+.card-tags {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 
 .card-meta {

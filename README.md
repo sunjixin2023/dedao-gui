@@ -37,6 +37,7 @@
 * **锦囊查看** - 可查看已购买的锦囊
 * **知识城邦** - 可查看知识城邦内容
 * **内容导出** - 课程可生成PDF，文稿生成 Markdown 文档，也可生成 mp3 文件
+* **视频课下载** - 支持将视频课导出为 MP4 文件（可下载条目）
 * **听书下载** - 每天听本书可下载音频，文稿生成 pdf、 Markdown 文档
 * **电子书下载** - 电子书可下载 pdf，html, epub 等格式
 * **免费内容** - 免费专区的课程如：《每天听本书》，《文明》，《长谈》等，可下载音频，文稿生成 pdf、 Markdown 文档
@@ -68,6 +69,58 @@
    ```bash
    wails build
    ```
+
+### 一键构建（推荐）
+
+项目已提供统一的一键脚本，默认自动识别当前平台并打包归档：
+
+```bash
+make bootstrap
+make build
+```
+
+也可以指定目标平台构建：
+
+```bash
+make release PLATFORM=darwin/universal
+make release PLATFORM=windows/amd64
+make release PLATFORM=linux/amd64
+```
+
+可选参数（传给 `scripts/release.sh`）：
+
+```bash
+make build RELEASE_ARGS="--skip-install"
+make release PLATFORM=darwin/arm64 RELEASE_ARGS="--no-package"
+```
+
+构建产物目录：`build/bin`  
+归档产物目录：`release/`（自动生成 `.tar.gz` / `.zip` 和 `.sha256`）
+
+### 一键部署（GitHub Release）
+
+仓库已支持通过 GitHub Actions 自动构建并发布多平台产物，可使用一条命令触发：
+
+```bash
+make deploy VERSION=v1.0.0
+```
+
+等价于手动创建并推送 tag：
+
+触发方式：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+触发后会自动构建：
+
+* macOS Universal
+* Windows amd64
+* Linux amd64
+
+并在 GitHub Release 中上传对应压缩包。
 
 详细构建说明请参考 [Wails 文档](https://wails.io/zh-Hans/docs/introduction)
 

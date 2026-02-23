@@ -1,30 +1,88 @@
 <template>
   <div class="ebook-container">
+    <section class="ebook-hero">
+      <div class="hero-content">
+        <p class="hero-kicker">Ebook Workspace</p>
+        <h1 class="hero-title">{{ groupMode.active ? groupMode.title : "我的电子书学习台" }}</h1>
+        <p class="hero-subtitle">
+          {{ groupMode.active ? "分组内书籍已展开，可查看详情、书评与离线下载。" : "独立电子书板块，专注阅读学习与书评互动。" }}
+        </p>
+
+        <div class="hero-actions">
+          <el-button type="primary" round @click="openFirstEbook">
+            {{ normalBookCount > 0 ? "打开第一本" : "浏览书架" }}
+          </el-button>
+          <el-button round :icon="RefreshRight" @click="refreshList">刷新列表</el-button>
+          <el-button round :icon="DownloadIcon" @click="goDownloadSetting">下载设置</el-button>
+          <el-button round :icon="ChatDotRound" @click="openCommentSquare">书评广场</el-button>
+        </div>
+      </div>
+
+      <div class="hero-stats">
+        <article class="stat-card">
+          <span>电子书数</span>
+          <strong>{{ normalBookCount }}</strong>
+        </article>
+        <article class="stat-card">
+          <span>分组数</span>
+          <strong>{{ groupBookCount }}</strong>
+        </article>
+        <article class="stat-card">
+          <span>平均进度</span>
+          <strong>{{ avgProgress }}%</strong>
+        </article>
+        <article class="stat-card">
+          <span>筛选条件</span>
+          <strong>{{ activeFilterName }}</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="reading-strip">
+      <article class="strip-card">
+        <span>阅读建议</span>
+        <strong>{{ readingSuggestion }}</strong>
+      </article>
+      <article class="strip-card">
+        <span>阅读阶段</span>
+        <strong>{{ readingStage }}</strong>
+      </article>
+      <article class="strip-card">
+        <span>当前状态</span>
+        <strong>{{ shelfStatus }}</strong>
+      </article>
+    </section>
+
     <div class="header-actions" v-if="groupMode.active">
       <el-button type="primary" link @click="exitGroup">
-        <el-icon><ArrowLeft /></el-icon> 返回
+        <el-icon><ArrowLeft /></el-icon> 返回全部电子书
       </el-button>
       <span class="group-title">{{ groupMode.title }}</span>
     </div>
 
-    <div v-if="filterOptions.length > 0 && !groupMode.active" class="filter-container">
-        <el-radio-group v-model="currentFilter" @change="handleFilterChange" size="small">
-            <el-radio-button 
-                v-for="item in filterOptions" 
-                :key="item.filter" 
-                :label="item.filter"
-            >
-                {{ item.name }}
-                <span v-if="item.show_count">({{ item.count }})</span>
-            </el-radio-button>
-        </el-radio-group>
+    <div v-if="hasFilters && !groupMode.active" class="filter-container">
+      <el-radio-group v-model="currentFilter" @change="handleFilterChange" size="small">
+        <el-radio-button
+            v-for="item in filterOptions"
+            :key="item.filter"
+            :label="item.filter"
+        >
+            {{ item.name }}
+            <span v-if="item.show_count">({{ item.count }})</span>
+        </el-radio-button>
+      </el-radio-group>
     </div>
 
-    <div class="ebook-grid-container" v-loading="initLoading" v-infinite-scroll="loadMore" :infinite-scroll-disabled="disabled" :infinite-scroll-immediate="false">
-      <div class="ebook-grid">
-        <div v-for="item in tableData.list" :key="item.enid" class="ebook-card" @click="handleCardClick(item)">
+    <div
+      class="ebook-grid-container"
+      v-loading="initLoading"
+      v-infinite-scroll="loadMore"
+      :infinite-scroll-disabled="disabled"
+      :infinite-scroll-immediate="false"
+    >
+      <div v-if="ebookList.length > 0" class="ebook-grid">
+        <div v-for="item in ebookList" :key="item.enid" class="ebook-card" @click="handleCardClick(item)">
           <div class="card-cover">
-            <!-- 分组封面拼图 -->
             <div v-if="item.is_group && item.group_books && item.group_books.length > 0" class="group-cover-grid">
               <div v-for="(book, index) in item.group_books.slice(0, 4)" :key="book.id || index" class="group-grid-item">
                 <el-image :src="book.icon" fit="cover" loading="lazy" class="grid-image">
@@ -35,17 +93,17 @@
                   </template>
                 </el-image>
               </div>
-              <div v-for="n in (4 - Math.min(item.group_books.length, 4))" :key="'ph-'+n" class="group-grid-item">
+              <div v-for="n in (4 - Math.min(item.group_books.length, 4))" :key="'ph-' + n" class="group-grid-item">
                 <div class="grid-placeholder bg-gray">
                   <el-icon><Picture /></el-icon>
                 </div>
               </div>
             </div>
 
-            <el-image 
-              v-else-if="item.icon" 
-              :src="item.icon" 
-              fit="cover" 
+            <el-image
+              v-else-if="item.icon"
+              :src="item.icon"
+              fit="cover"
               loading="lazy"
               class="cover-image"
             >
@@ -58,45 +116,43 @@
             <div v-else class="no-cover">
               <el-icon><Notebook /></el-icon>
             </div>
-            
-            <!-- Group Indicator -->
-            <div v-if="item.is_group" class="group-badge">
-              <el-icon><Folder /></el-icon>
-              <span>{{ item.course_num || 0 }}本</span>
+
+            <div class="card-badges">
+              <div v-if="item.is_group" class="group-badge">
+                <el-icon><Folder /></el-icon>
+                <span>{{ item.course_num || 0 }}本</span>
+              </div>
+              <div v-if="!item.is_group && item.progress" class="progress-badge">
+                {{ safePercent(item.progress) }}%
+              </div>
             </div>
 
-            <!-- Progress Badge -->
-            <div v-if="!item.is_group && item.progress" class="progress-badge">
-              {{ item.progress }}%
-            </div>
-
-            <!-- Hover Overlay -->
             <div class="card-overlay">
               <div class="overlay-actions">
                 <template v-if="!item.is_group">
-                  <el-tooltip content="详情" :show-after="500">
+                  <el-tooltip content="详情" :show-after="450">
                     <el-button circle size="small" @click.stop="handleProd(item.enid)">
                       <el-icon><View /></el-icon>
                     </el-button>
                   </el-tooltip>
-                  <el-tooltip content="下载" :show-after="500">
+                  <el-tooltip content="下载" :show-after="450">
                     <el-button circle size="small" type="primary" @click.stop="openDownloadDialog(item)">
                       <el-icon><DownloadIcon /></el-icon>
                     </el-button>
                   </el-tooltip>
-                  <el-tooltip content="书评" :show-after="500">
+                  <el-tooltip content="书评" :show-after="450">
                     <el-button circle size="small" @click.stop="gotoCommentList(item)">
                       <el-icon><ChatDotRound /></el-icon>
                     </el-button>
                   </el-tooltip>
-                  <el-tooltip content="移出书架" :show-after="500">
+                  <el-tooltip content="移出书架" :show-after="450">
                     <el-button circle size="small" type="danger" @click.stop="ebookShelfRemove(item.enid)">
                       <el-icon><Delete /></el-icon>
                     </el-button>
                   </el-tooltip>
                 </template>
                 <template v-else>
-                   <el-button type="primary" round size="small" @click.stop="enterGroup(item)">进入分组</el-button>
+                  <el-button type="primary" round size="small" @click.stop="enterGroup(item)">进入分组</el-button>
                 </template>
               </div>
             </div>
@@ -106,32 +162,50 @@
             <h3 class="card-title" :title="item.title">{{ item.title }}</h3>
             <p class="card-intro" :title="item.intro">{{ stripHtml(item.intro) }}</p>
             <div class="card-meta">
-               <span v-if="item.price" class="price">¥{{ item.price }}</span>
-               <el-tag v-if="item.is_group" size="small" effect="plain">分组</el-tag>
+              <span v-if="item.price" class="price">¥{{ item.price }}</span>
+              <el-tag v-if="item.is_group" size="small" effect="plain">分组</el-tag>
             </div>
           </div>
         </div>
       </div>
+
+      <div v-else class="empty-state">
+        <div class="empty-icon">
+          <el-icon><Notebook /></el-icon>
+        </div>
+        <h3>电子书书架暂时为空</h3>
+        <p v-if="isLoggedIn">可以切换筛选条件，或稍后刷新书架。</p>
+        <p v-else>登录后可同步你的电子书书架与阅读进度。</p>
+        <div class="empty-actions">
+          <el-button v-if="!isLoggedIn" type="primary" round @click="pushLogin">立即登录</el-button>
+          <el-button round @click="refreshList">刷新</el-button>
+          <el-button round @click="goDownloadSetting">设置下载目录</el-button>
+        </div>
+      </div>
     </div>
 
-    
-    <ebook-info v-if="dialogVisible" :enid="prodEnid" :dialog-visible="dialogVisible" @close="closeDialog"></ebook-info>
+    <ebook-info
+      v-if="dialogVisible"
+      :enid="prodEnid"
+      :dialog-visible="dialogVisible"
+      @close="closeDialog"
+    />
 
     <download-dialog
-            v-if="dialogDownloadVisible"
-            :dialog-visible="dialogDownloadVisible"
-            :download-type-options="downloadTypeOptions"
-            :prod-type="2"
-            :download-id="downloadId"
-            :en-id="downloadEnId"
-            @close="closeDownloadDialog">
-    </download-dialog>
+      v-if="dialogDownloadVisible"
+      :dialog-visible="dialogDownloadVisible"
+      :download-type-options="downloadTypeOptions"
+      :prod-type="2"
+      :download-id="downloadId"
+      :en-id="downloadEnId"
+      @close="closeDownloadDialog"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
-import {onMounted, reactive, ref, computed} from 'vue'
-import {ElMessage, ElMessageBox} from 'element-plus'
+import { onMounted, reactive, ref, computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
   View,
@@ -140,7 +214,8 @@ import {
   Picture,
   Notebook,
   Folder,
-  ArrowLeft
+  ArrowLeft,
+  RefreshRight,
 } from '@element-plus/icons-vue'
 import {
   CourseCategory,
@@ -150,26 +225,25 @@ import {
   SetDir,
   GetNavbar
 } from '../../wailsjs/go/backend/App'
-import {services} from '../../wailsjs/go/models'
+import { services } from '../../wailsjs/go/models'
 import EbookInfo from '../components/EbookInfo.vue'
-import DownloadDialog from "../components/DownloadDialog.vue";
-
-import {useAppRouter} from '../composables/useRouter'
-import {userStore} from '../stores/user'
-import {settingStore} from "../stores/setting";
-import {Local} from '../utils/storage'
+import DownloadDialog from "../components/DownloadDialog.vue"
+import { useAppRouter } from '../composables/useRouter'
+import { userStore } from '../stores/user'
+import { settingStore } from "../stores/setting"
+import { Local } from '../utils/storage'
 
 const store = userStore()
 const setStore = settingStore()
 const { pushEbookComment, pushSetting, pushLogin } = useAppRouter()
+
 const loading = ref(false)
 const initLoading = ref(true)
 const page = ref(1)
 const total = ref(0)
 const outerTotal = ref(0)
-const pageSize = ref(20) // Increased for grid view
+const pageSize = ref(20)
 const lastPageSize = ref(20)
-const searchInfo = ref({})
 const dialogVisible = ref(false)
 const prodEnid = ref("")
 const filterOptions = ref<any[]>([])
@@ -182,137 +256,189 @@ const groupMode = reactive({
 })
 
 const dialogDownloadVisible = ref(false)
-const downloadType = ref(1)
 const downloadId = ref(0)
 const downloadEnId = ref('')
 const downloadTypeOptions = [
-    {value: 1, label: "HTML"}, {value: 2, label: "PDF"}, {value: 3, label: "EPUB"}
+    { value: 1, label: "HTML" },
+    { value: 2, label: "PDF" },
+    { value: 3, label: "EPUB" }
 ]
 
-let tableData = reactive(new services.CourseList)
+let tableData = reactive(new services.CourseList())
 
-onMounted(() => {
-    CourseCategory().then(result => {
-        result.forEach((item, key) => {
-            if (item.category == "ebook") {
-                outerTotal.value = item.count
-                if (!groupMode.active) total.value = item.count
-            }
-        })
-
-    }).catch((error) => {
-        if (error == '401 Unauthorized') {
-            store.user = null
-            pushLogin()
-        }
-        Local.remove("cookies")
-        Local.remove("userStore")
-    })
-    
-    // Initial load
-    GetNavbar().then((res: any) => {
-        if (res && res.list) {
-            const opts: any[] = []
-            res.list.forEach((item: any) => {
-                if (item.category === "ebook" && item.children) {
-                    opts.push(...item.children)
-                }
-            })
-            filterOptions.value = opts
-        }
-    })
-    getTableData()
+const isLoggedIn = computed(() => Boolean(Local.get("cookies")))
+const hasFilters = computed(() => filterOptions.value.length > 0)
+const ebookList = computed(() => tableData.list || [])
+const normalBooks = computed(() => ebookList.value.filter((item: any) => !item?.is_group))
+const normalBookCount = computed(() => normalBooks.value.length)
+const groupBookCount = computed(() => ebookList.value.filter((item: any) => Boolean(item?.is_group)).length)
+const avgProgress = computed(() => {
+  if (normalBooks.value.length === 0) return 0
+  const sum = normalBooks.value.reduce((acc: number, item: any) => acc + safePercent(item?.progress), 0)
+  return Math.round(sum / normalBooks.value.length)
+})
+const activeFilterName = computed(() => {
+  if (groupMode.active) return "分组模式"
+  if (currentFilter.value === 'all') return "全部"
+  const match = filterOptions.value.find((item: any) => item.filter === currentFilter.value)
+  return String(match?.name || "筛选中")
+})
+const readingStage = computed(() => {
+  if (normalBookCount.value === 0) return "尚未开始"
+  if (avgProgress.value < 20) return "起步阶段"
+  if (avgProgress.value < 70) return "推进阶段"
+  return "复盘阶段"
+})
+const readingSuggestion = computed(() => {
+  if (!isLoggedIn.value) return "登录后同步进度，自动推荐下一章。"
+  if (normalBookCount.value === 0) return "先浏览书架并收藏你要读的书。"
+  if (avgProgress.value < 20) return "建议先读目录与序言，建立全书地图。"
+  if (avgProgress.value < 70) return "保持章节推进，每次阅读 20 分钟更稳。"
+  return "已接近完成，建议整理书摘与复盘笔记。"
+})
+const shelfStatus = computed(() => {
+  if (groupMode.active) return `分组：${groupMode.title || "已选择"}`
+  return `筛选：${activeFilterName.value}`
 })
 
+const safePercent = (val: any) => {
+  const n = Number(val || 0)
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(100, Math.round(n)))
+}
+
 const noMore = computed(() => {
-    const currentCount = tableData.list ? tableData.list.length : 0
-    if (groupMode.active || currentFilter.value !== 'all') {
-        const total = tableData.total || 0
-        if (total > 0) {
-            return currentCount >= total
-        }
-        if (tableData.is_more === 0) {
-            return true
-        }
-        return lastPageSize.value < pageSize.value
-    }
-    if (outerTotal.value > 0) {
-        return currentCount >= outerTotal.value
-    }
-    // Fallback if outerTotal is not yet available or reliable
+  const currentCount = ebookList.value.length
+  if (groupMode.active || currentFilter.value !== 'all') {
+    const currentTotal = Number(tableData.total || 0)
+    if (currentTotal > 0) return currentCount >= currentTotal
+    if (tableData.is_more === 0) return true
     return lastPageSize.value < pageSize.value
+  }
+  if (outerTotal.value > 0) return currentCount >= outerTotal.value
+  return lastPageSize.value < pageSize.value
 })
 
 const disabled = computed(() => loading.value || noMore.value)
 
 const loadMore = () => {
-    if (disabled.value) return
-    page.value += 1
-    getTableData(true)
+  if (disabled.value) return
+  page.value += 1
+  getTableData(true)
+}
+
+const loadCategoryTotal = async () => {
+  try {
+    const result = await CourseCategory()
+    result.forEach((item) => {
+      if (item.category == "ebook") {
+        outerTotal.value = item.count
+        if (!groupMode.active) total.value = item.count
+      }
+    })
+  } catch (error: any) {
+    const message = String(error || '')
+    if (message.includes('401')) {
+      store.user = null
+      pushLogin()
+    }
+    Local.remove("cookies")
+    Local.remove("userStore")
+  }
+}
+
+const loadFilters = async () => {
+  try {
+    const res = await GetNavbar()
+    const opts: any[] = []
+    if (res && (res as any).list) {
+      ;(res as any).list.forEach((item: any) => {
+        if (item.category === "ebook" && item.children) {
+          opts.push(...item.children)
+        }
+      })
+    }
+    filterOptions.value = opts
+  } catch {
+  }
 }
 
 const getTableData = async (append = false) => {
-    console.log('Ebook getTableData:', { append, currentFilter: currentFilter.value, groupMode: groupMode.active })
-    loading.value = true
-    if (!append) initLoading.value = true
+  loading.value = true
+  if (!append) initLoading.value = true
 
-    let fetcher;
-    if (groupMode.active) {
-        fetcher = CourseGroupList("ebook", "study", currentFilter.value,groupMode.groupId, page.value, pageSize.value)
+  try {
+    const table = groupMode.active
+      ? await CourseGroupList("ebook", "study", currentFilter.value, groupMode.groupId, page.value, pageSize.value)
+      : await CourseList("ebook", "study", currentFilter.value, page.value, pageSize.value)
+
+    const fetchedList = table.list || []
+    lastPageSize.value = fetchedList.length
+
+    if (append) {
+      if (fetchedList.length > 0) tableData.list.push(...fetchedList)
     } else {
-        fetcher = CourseList("ebook", "study", currentFilter.value, page.value, pageSize.value)
+      Object.assign(tableData, table)
     }
 
-    await fetcher.then((table) => {
-        loading.value = false
-        initLoading.value = false
-        
-        // Update lastPageSize based on the fetched list length
-        const fetchedList = table.list || []
-        lastPageSize.value = fetchedList.length
-        
-        if (append) {
-            if (fetchedList.length > 0) {
-                tableData.list.push(...fetchedList)
-            }
-        } else {
-            Object.assign(tableData, table)
-        }
-        
-        if (groupMode.active || currentFilter.value !== 'all') {
-            total.value = table.total || 0
-        } else {
-            total.value = outerTotal.value
-        }
-    }).catch((error) => {
-        loading.value = false
-        initLoading.value = false
-        ElMessage({
-            message: error,
-            type: 'warning'
-        })
-    })
+    total.value = (groupMode.active || currentFilter.value !== 'all')
+      ? Number(table.total || 0)
+      : outerTotal.value
+  } catch (error: any) {
+    const message = String(error || '')
+    if (message.includes('401')) {
+      store.user = null
+      pushLogin()
+    } else {
+      ElMessage({
+        message,
+        type: 'warning'
+      })
+    }
+  } finally {
+    loading.value = false
+    initLoading.value = false
+  }
+}
+
+const refreshList = () => {
+  page.value = 1
+  tableData.list = []
+  getTableData()
+}
+
+const openFirstEbook = () => {
+  const first = normalBooks.value[0]
+  if (first) {
+    handleProd(first.enid)
+    return
+  }
+  const groupFirst = ebookList.value.find((item: any) => item?.is_group)
+  if (groupFirst) enterGroup(groupFirst)
+}
+
+const openCommentSquare = () => {
+  pushEbookComment()
 }
 
 const handleProd = (enid: string) => {
-    prodEnid.value = enid
-    dialogVisible.value = true
+  prodEnid.value = enid
+  dialogVisible.value = true
 }
 
 const handleFilterChange = () => {
-    console.log('Ebook filter changed:', currentFilter.value)
-    if (groupMode.active) {
-        groupMode.active = false
-        groupMode.groupId = 0
-        groupMode.title = ''
-    }
-    page.value = 1
-    getTableData()
+  if (groupMode.active) {
+    groupMode.active = false
+    groupMode.groupId = 0
+    groupMode.title = ''
+  }
+  page.value = 1
+  tableData.list = []
+  getTableData()
 }
 
 const enterGroup = (row: any) => {
   const groupId = Number(row?.group_id || row?.id || 0)
-
   if (!groupId) return
 
   groupMode.active = true
@@ -324,127 +450,225 @@ const enterGroup = (row: any) => {
 }
 
 const exitGroup = () => {
-    groupMode.active = false
-    groupMode.groupId = 0
-    groupMode.title = ''
-    page.value = 1
-    getTableData()
+  groupMode.active = false
+  groupMode.groupId = 0
+  groupMode.title = ''
+  page.value = 1
+  getTableData()
 }
 
 const handleCardClick = (item: any) => {
-    if (item.is_group) {
-        enterGroup(item)
-    } else {
-        handleProd(item.enid)
-    }
+  if (item.is_group) {
+    enterGroup(item)
+  } else {
+    handleProd(item.enid)
+  }
+}
+
+const goDownloadSetting = () => {
+  pushSetting()
 }
 
 const openDownloadDialog = (row: any) => {
-    downloadId.value = row.id
-    downloadEnId.value = row.enid
-    
-    if (setStore.getDownloadDir == "") {
-        ElMessage({
-            message: '请设置文件保存目录',
-            type: 'warning'
-        })
-        pushSetting()
-    } else {
-        // Ensure directories are set in backend
-        SetDir([setStore.getDownloadDir,
-            setStore.getFfmpegDirDir,
-            setStore.getWkDir]).then(() => {
-            dialogDownloadVisible.value = true
-        }).catch((error) => {
-            ElMessage({
-                message: error,
-                type: 'warning'
-            })
-        })
-    }
+  downloadId.value = row.id
+  downloadEnId.value = row.enid
+
+  if (setStore.getDownloadDir == "") {
+    ElMessage({
+      message: '请设置文件保存目录',
+      type: 'warning'
+    })
+    pushSetting()
+  } else {
+    SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).then(() => {
+      dialogDownloadVisible.value = true
+    }).catch((error) => {
+      ElMessage({
+        message: error,
+        type: 'warning'
+      })
+    })
+  }
 }
 
 const closeDownloadDialog = () => {
-    downloadType.value = 1
-    dialogDownloadVisible.value = false
+  dialogDownloadVisible.value = false
 }
 
 const gotoCommentList = (row: any) => {
-    pushEbookComment({
-        id: row.id,
-        enid: row.enid,
-        total: row.publish_num,
-        title: row.title
-    })
+  pushEbookComment({
+    id: row.id,
+    enid: row.enid,
+    total: row.publish_num,
+    title: row.title
+  })
 }
 
 const ebookShelfRemove = (enid: string) => {
-    ElMessageBox.confirm(
-        '确定要将该电子书移出书架吗?',
-        '提示',
-        {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            type: 'warning',
-        }
-    ).then(() => {
-        // backend expects array
-        EbookShelfRemove([enid]).then(() => {
-            ElMessage({
-                type: 'success',
-                message: '移除成功',
-            })
-            getTableData()
-        }).catch((err) => {
-            ElMessage({
-                type: 'error',
-                message: err,
-            })
-        })
+  ElMessageBox.confirm(
+    '确定要将该电子书移出书架吗?',
+    '提示',
+    {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    }
+  ).then(() => {
+    EbookShelfRemove([enid]).then(() => {
+      ElMessage({
+        type: 'success',
+        message: '移除成功',
+      })
+      refreshList()
+    }).catch((err) => {
+      ElMessage({
+        type: 'error',
+        message: err,
+      })
     })
+  })
 }
 
 const closeDialog = () => {
-    dialogVisible.value = false
+  dialogVisible.value = false
 }
 
 const stripHtml = (html: string) => {
-    if (!html) return ''
-    const tmp = document.createElement("DIV")
-    tmp.innerHTML = html
-    return tmp.textContent || tmp.innerText || ""
+  if (!html) return ''
+  const tmp = document.createElement("div")
+  tmp.innerHTML = html
+  return tmp.textContent || tmp.innerText || ""
 }
+
+onMounted(async () => {
+  await Promise.all([loadCategoryTotal(), loadFilters()])
+  getTableData()
+})
 </script>
 
 <style scoped>
 .ebook-container {
+  --ebook-accent: #a5622f;
+  --ebook-accent-strong: #8d4a22;
+  --ebook-paper: #fffaf2;
+  --ebook-paper-soft: #f5ede2;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-color);
-  padding: 20px;
+  gap: 16px;
+  padding: 18px;
   overflow: hidden;
+  box-sizing: border-box;
+}
+
+.ebook-hero {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 82%, transparent);
+  background:
+    radial-gradient(360px 180px at 14% 0%, color-mix(in srgb, #f2d4b6 62%, transparent) 0%, transparent 72%),
+    radial-gradient(280px 170px at 90% 0%, color-mix(in srgb, #f9efe1 76%, transparent) 0%, transparent 74%),
+    color-mix(in srgb, var(--surface-glass) 74%, transparent);
+  box-shadow: 0 12px 28px rgba(8, 18, 32, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.hero-kicker {
+  margin: 0;
+  color: var(--ebook-accent);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.hero-title {
+  margin: 8px 0 0;
+  font-size: 30px;
+  line-height: 1.15;
+  color: var(--text-primary);
+  font-family: var(--font-family-wenkai);
+}
+
+.hero-subtitle {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 760px;
+}
+
+.hero-actions {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stat-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 84%, transparent);
+}
+
+.stat-card span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  color: var(--ebook-accent-strong);
+  line-height: 1.2;
+}
+
+.reading-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.strip-card {
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--ebook-accent) 28%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--ebook-paper) 84%, transparent) 0%, color-mix(in srgb, var(--ebook-paper-soft) 74%, transparent) 100%);
+  padding: 12px 14px;
+  min-height: 64px;
+}
+
+.strip-card span {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.strip-card strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ebook-accent-strong);
+  font-size: 15px;
+  line-height: 1.45;
+  font-family: var(--font-family-wenkai);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
-}
-
-.filter-container {
-    margin-bottom: 20px;
-    overflow-x: auto;
-    white-space: nowrap;
-    padding-bottom: 4px;
-}
-.filter-container::-webkit-scrollbar {
-    height: 4px;
-}
-.filter-container::-webkit-scrollbar-thumb {
-    background: var(--border-color);
-    border-radius: 2px;
 }
 
 .group-title {
@@ -453,11 +677,26 @@ const stripHtml = (html: string) => {
   color: var(--text-primary);
 }
 
+.filter-container {
+  overflow-x: auto;
+  white-space: nowrap;
+  padding-bottom: 6px;
+}
+
+.filter-container::-webkit-scrollbar {
+  height: 4px;
+}
+
+.filter-container::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: 2px;
+}
+
 .ebook-grid-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-bottom: 20px;
-  /* 隐藏滚动条但保留功能 */
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -468,18 +707,18 @@ const stripHtml = (html: string) => {
 
 .ebook-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
   padding: 4px;
   align-content: start;
 }
 
 .ebook-card {
-  background-color: var(--card-bg);
-  border-radius: 12px;
+  background-color: color-mix(in srgb, var(--card-bg) 88%, transparent);
+  border-radius: 14px;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid var(--border-color);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 82%, transparent);
   display: flex;
   flex-direction: column;
   cursor: pointer;
@@ -487,9 +726,9 @@ const stripHtml = (html: string) => {
 }
 
 .ebook-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
   box-shadow: var(--shadow-medium);
-  border-color: var(--primary-color-light);
+  border-color: color-mix(in srgb, var(--ebook-accent) 36%, transparent);
 }
 
 .card-cover {
@@ -502,7 +741,7 @@ const stripHtml = (html: string) => {
 .cover-image {
   width: 100%;
   height: 100%;
-  transition: transform 0.5s ease;
+  transition: transform 0.45s ease;
 }
 
 .ebook-card:hover .cover-image {
@@ -529,19 +768,38 @@ const stripHtml = (html: string) => {
   color: var(--text-secondary);
 }
 
-.group-badge {
+.card-badges {
   position: absolute;
   top: 8px;
+  left: 8px;
   right: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.group-badge {
   background-color: rgba(0, 0, 0, 0.6);
   color: #fff;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 12px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   backdrop-filter: blur(4px);
+}
+
+.progress-badge {
+  margin-left: auto;
+  background-color: var(--ebook-accent-strong);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .group-cover-grid {
@@ -551,13 +809,13 @@ const stripHtml = (html: string) => {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
   gap: 2px;
-  background: var(--fill-color-light, #f5f7fa);
+  background: var(--fill-color-light);
 }
 
 .group-grid-item {
   position: relative;
   overflow: hidden;
-  background: var(--fill-color-light, #f5f7fa);
+  background: var(--fill-color-light);
   width: 100%;
   height: 100%;
 }
@@ -574,39 +832,23 @@ const stripHtml = (html: string) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-tertiary, #909399);
-  background: var(--fill-color-light, #f5f7fa);
+  color: var(--text-tertiary);
+  background: var(--fill-color-light);
 }
 
 .bg-gray {
-  background: var(--fill-color, #f0f2f5);
-}
-
-.progress-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  background-color: var(--primary-color);
-  color: #fff;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  background: var(--fill-color);
 }
 
 .card-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.4);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.44);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.25s ease;
   backdrop-filter: blur(2px);
 }
 
@@ -634,6 +876,7 @@ const stripHtml = (html: string) => {
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 8px 0;
+  font-family: var(--font-family-wenkai);
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -645,7 +888,7 @@ const stripHtml = (html: string) => {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0 0 8px 0;
-  line-height: 1.4;
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -662,28 +905,107 @@ const stripHtml = (html: string) => {
 
 .price {
   font-size: 13px;
-  color: var(--accent-color);
+  color: var(--ebook-accent-strong);
   font-weight: 600;
   font-family: var(--font-family-mono);
 }
 
-/* Dark Mode Adaptation */
-.theme-dark .ebook-card {
-  border-color: var(--border-soft);
+.empty-state {
+  margin-top: 8px;
+  min-height: 360px;
+  border-radius: 16px;
+  border: 1px dashed color-mix(in srgb, var(--border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 86%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
 }
 
-.theme-dark .group-badge {
-  background-color: rgba(255, 255, 255, 0.2);
+.empty-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: var(--ebook-accent-strong);
+  background: color-mix(in srgb, var(--ebook-accent) 12%, transparent);
 }
 
-/* Scrollbar Styling */
-.ebook-grid {
-  /* 隐藏滚动条但保留功能 - 清新风格 */
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE 10+ */
+.empty-state h3 {
+  margin: 14px 0 8px;
+  font-size: 20px;
+  color: var(--text-primary);
+  font-family: var(--font-family-display);
 }
 
-.ebook-grid::-webkit-scrollbar {
-  display: none; /* Chrome/Safari */
+.empty-state p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.empty-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+@media (max-width: 1400px) {
+  .ebook-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1180px) {
+  .ebook-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .reading-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ebook-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .ebook-container {
+    padding: 12px;
+  }
+
+  .hero-title {
+    font-size: 24px;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ebook-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+@media (max-width: 620px) {
+  .hero-actions :deep(.el-button) {
+    margin: 0;
+  }
+
+  .ebook-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

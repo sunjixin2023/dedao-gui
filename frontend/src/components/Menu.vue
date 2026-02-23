@@ -6,30 +6,50 @@
              @select="handleSelect" :collapse-transition="false">
             <menu-item v-for="(menu, key) in allRoutes" :key="key" :menu="menu" :path="menu.path" />
         </el-menu>
-        
-        <!-- 主题切换按钮 -->
-        <div class="theme-switch-container">
-            <el-switch 
-                v-model="isDark" 
-                :active-action-icon="Moon" 
-                :inactive-action-icon="Sunny" 
-                inline-prompt 
-                @change="toggleDark"
-                class="theme-switch"
-            />
-            <span style="margin-left: 8px; color: var(--text-primary); font-size: 12px;">
-                {{ isDark ? '暗色' : '亮色' }}
-            </span>
+
+        <div class="header-actions">
+            <el-tooltip
+                v-if="lStore.hasLastArticle"
+                :content="`继续学习：${lStore.lastArticle?.title || ''}`"
+                :show-after="500"
+            >
+                <button class="continue-pill" @click="continueLearning">
+                    <el-icon><Reading /></el-icon>
+                    <span class="pill-text">{{ lStore.lastArticle?.title || '继续学习' }}</span>
+                    <span class="pill-progress">{{ lStore.lastArticle?.progress ?? 0 }}%</span>
+                </button>
+            </el-tooltip>
+
+            <button v-if="pStore.hasTrack" class="learning-pill" @click="openLearningPanel" :title="pStore.currentTrack?.title ?? ''">
+                <el-icon><Headset /></el-icon>
+                <span class="pill-text">{{ pStore.currentTrack?.title }}</span>
+            </button>
+
+            <div class="theme-switch-container">
+                <el-switch 
+                    v-model="isDark" 
+                    :active-action-icon="Moon" 
+                    :inactive-action-icon="Sunny" 
+                    inline-prompt 
+                    @change="toggleDark"
+                    class="theme-switch"
+                />
+                <span style="margin-left: 8px; color: var(--text-primary); font-size: 12px;">
+                    {{ isDark ? '暗色' : '亮色' }}
+                </span>
+            </div>
         </div>
     </div>
 </template>
   
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Moon, Sunny } from '@element-plus/icons-vue'
+import { Headset, Moon, Reading, Sunny } from '@element-plus/icons-vue'
 import MenuItem from './MenuItem.vue'
 import { themeStore } from '../stores/theme'
+import { playerStore } from '../stores/player'
+import { learningStore } from '../stores/learning'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,11 +57,11 @@ const router = useRouter()
 // 主题相关
 const store = themeStore()
 const isDark = computed(() => store.isDark)
+const pStore = playerStore()
+const lStore = learningStore()
 
 const toggleDark = () => {
-  console.log('切换主题，当前状态:', store.isDark)
   store.toggleTheme()
-  console.log('切换后状态:', store.isDark)
 }
 
 const allRoutes = router.options.routes.filter(route => 
@@ -53,6 +73,16 @@ const activeIndex = computed(() => {
 const handleSelect = (key: string, keyPath: string[]) => {
     // console.log(key, keyPath)
 }
+
+const openLearningPanel = () => {
+  pStore.openPlaylist()
+}
+
+const continueLearning = () => {
+  const path = String(lStore.lastArticle?.path ?? '').trim()
+  if (!path) return
+  router.push(path)
+}
 </script>
 
 <style scoped>
@@ -63,11 +93,59 @@ const handleSelect = (key: string, keyPath: string[]) => {
   width: 100%;
 }
 
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.continue-pill,
+.learning-pill {
+  height: 34px;
+  max-width: 340px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 10%, white 90%) 0%, var(--card-bg) 100%);
+  color: var(--text-primary);
+  padding: 0 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.continue-pill {
+  max-width: 360px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-color) 12%, white 88%) 0%, var(--card-bg) 100%);
+}
+
+.continue-pill:hover,
+.learning-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+  border-color: var(--accent-color);
+}
+
+.pill-text {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.pill-progress {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 .theme-switch-container {
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  margin-left: auto;
+  padding: 0 12px;
   min-width: 120px;
   justify-content: flex-end;
 }
@@ -191,5 +269,12 @@ const handleSelect = (key: string, keyPath: string[]) => {
   color: var(--accent-color) !important;
   background-color: var(--card-hover-bg) !important;
   border-bottom-color: var(--accent-color) !important;
+}
+
+@media (max-width: 1100px) {
+  .continue-pill,
+  .learning-pill {
+    display: none;
+  }
 }
 </style>

@@ -21,7 +21,12 @@ func Download(v Datum, stream, path string) error {
 	if v.OrderNum > 0 {
 		title = fmt.Sprintf("%03d.%s", v.OrderNum, title)
 	}
+	filePreName := filepath.Join(path, title)
+
 	if stream == "" {
+		if len(v.sortedStreams) == 0 {
+			return fmt.Errorf("未找到可下载资源：%s", v.Title)
+		}
 		stream = v.sortedStreams[0].name
 	}
 	data, ok := v.Streams[stream]
@@ -30,11 +35,19 @@ func Download(v Datum, stream, path string) error {
 	}
 
 	// 判断下载连接是否存在
+	if v.Type == "video" && len(data.URLs) == 0 && v.M3U8URL != "" {
+		mp4FileName, err := utils.FilePath(filePreName, "mp4", false)
+		if err != nil {
+			return err
+		}
+		return utils.MergeAudio([]string{v.M3U8URL}, mp4FileName)
+	}
+
+	// 判断下载连接是否存在
 	if len(data.URLs) == 0 {
 		return nil
 	}
 
-	filePreName := filepath.Join(path, title)
 	fileName, err := utils.FilePath(filePreName, "mp3", false)
 
 	if err != nil {

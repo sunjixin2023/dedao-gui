@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,7 +23,7 @@ var OutputDir = ""
 
 type CourseDownload struct {
 	Ctx          context.Context
-	DownloadType int    // 1:mp3, 2:PDF文档, 3:markdown文档
+	DownloadType int    // 1:mp3, 2:PDF文档, 3:markdown文档, 4:mp4
 	ID           int    // 课程 id
 	AID          int    // 文章 id
 	EnId         string // 课程 enid
@@ -74,6 +77,9 @@ func (d *CourseDownload) Download() error {
 	switch d.DownloadType {
 	case 1: // mp3
 		downloadData := extractDownloadData(course, articles, d.AID, 1)
+		if len(downloadData.Data) == 0 {
+			return errors.New("当前课程没有可下载的音频内容")
+		}
 		errs := make([]error, 0)
 
 		path, err := utils.Mkdir(OutputDir, utils.FileName(course.ClassInfo.Name, ""), "MP3")
@@ -96,6 +102,43 @@ func (d *CourseDownload) Download() error {
 			}
 			stream := datum.Enid
 			if err := downloader.Download(datum, stream, path); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if len(errs) > 0 {
+			return errs[0]
+		}
+	case 4: // mp4
+		videoData, err := extractVideoDownloadData(articles, d.AID)
+		if err != nil {
+			return err
+		}
+		if len(videoData) == 0 {
+			return errors.New("当前课程没有可下载的视频内容")
+		}
+
+		errs := make([]error, 0)
+		path, err := utils.Mkdir(OutputDir, utils.FileName(course.ClassInfo.Name, ""), "MP4")
+		if err != nil {
+			return err
+		}
+
+		total, curr := len(videoData), 0
+		for _, datum := range videoData {
+			var progress Progress
+			progress.ID = d.ID
+			progress.Total = total
+			curr++
+			progress.Current = curr
+			progress.Pct = curr * 100 / progress.Total
+			progress.Value = datum.Title + ".mp4"
+			runtime.EventsEmit(d.Ctx, "courseDownload", progress)
+
+			if !datum.IsCanDL {
+				continue
+			}
+
+			if err := downloader.Download(datum, "", path); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -329,6 +372,208 @@ func extractCourseDownloadData(articles *services.ArticleList, aid int, flag int
 		data = append(data, *d)
 	}
 	return data
+}
+
+// 生成课程视频下载数据
+func extractVideoDownloadData(articles *services.ArticleList, aid int) ([]downloader.Datum, error) {
+	data := downloader.EmptyData
+	svc := getService()
+	var firstErr error
+
+	for _, article := range articles.List {
+		if aid > 0 && article.ID != aid {
+			continue
+		}
+		if article.VideoStatus != 1 {
+			continue
+		}
+
+		videoMedia := pickVideoMediaBaseInfo(article.MediaBaseInfo)
+		if videoMedia == nil || videoMedia.SourceID == "" || videoMedia.SecurityToken == "" {
+			continue
+		}
+
+		streams, m3u8URL, err := buildVideoStreams(svc, videoMedia.SourceID, videoMedia.SecurityToken)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		if len(streams) == 0 && m3u8URL == "" {
+			continue
+		}
+		if len(streams) == 0 {
+			streams = map[string]downloader.Stream{
+				article.Enid: {
+					URLs:    []downloader.URL{},
+					Size:    0,
+					Quality: article.Enid,
+				},
+			}
+		}
+
+		datum := downloader.Datum{
+			ID:        article.ID,
+			Enid:      article.Enid,
+			ClassEnid: article.ClassEnid,
+			ClassID:   article.ClassID,
+			Title:     article.Title,
+			IsCanDL:   true,
+			M3U8URL:   m3u8URL,
+			OrderNum:  article.OrderNum,
+			Streams:   streams,
+			Type:      "video",
+		}
+		data = append(data, datum)
+	}
+
+	if len(data) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return data, nil
+}
+
+func pickVideoMediaBaseInfo(list []services.MediaBaseInfo) *services.MediaBaseInfo {
+	for i := range list {
+		if list[i].MediaType == 2 {
+			return &list[i]
+		}
+	}
+	if len(list) == 0 {
+		return nil
+	}
+	return &list[0]
+}
+
+func buildVideoStreams(svc *services.Service, mediaID, securityToken string) (map[string]downloader.Stream, string, error) {
+	streams := map[string]downloader.Stream{}
+	m3u8URL := ""
+
+	volc, err := svc.GetVolcPlayAuthToken(mediaID, securityToken)
+	if err != nil {
+		return streams, m3u8URL, err
+	}
+	if volc == nil {
+		return streams, m3u8URL, nil
+	}
+
+	var lastErr error
+	for _, track := range volc.Tracks {
+		for _, format := range track.Formats {
+			vid := strings.TrimSpace(format.VolcId)
+			playAuthToken := strings.TrimSpace(format.VolcPlayAuthToken)
+			if vid == "" || playAuthToken == "" {
+				continue
+			}
+
+			query := fmt.Sprintf(
+				"Vid=%s&PlayAuthToken=%s&Ssl=1",
+				url.QueryEscape(vid),
+				url.QueryEscape(playAuthToken),
+			)
+			info, err := svc.GetVolcPlayInfo(query)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if info == nil {
+				continue
+			}
+			if m3u8URL == "" {
+				m3u8URL = pickAdaptiveM3U8URL(info)
+			}
+
+			for _, playInfo := range info.Result.PlayInfoList {
+				addVideoStream(streams, playInfo)
+			}
+		}
+	}
+
+	if len(streams) == 0 && lastErr != nil {
+		return streams, m3u8URL, lastErr
+	}
+	return streams, m3u8URL, nil
+}
+
+func addVideoStream(streams map[string]downloader.Stream, playInfo services.VodPlayInfo) {
+	playURL := strings.TrimSpace(playInfo.MainPlayUrl)
+	if playURL == "" {
+		playURL = strings.TrimSpace(playInfo.BackupPlayUrl)
+	}
+	if playURL == "" {
+		return
+	}
+
+	ext := normalizeVideoExt(playInfo.Format, playURL)
+	// 当前下载器直接按 URL 下载，优先只处理 mp4 直链
+	if ext != "mp4" {
+		return
+	}
+
+	quality := normalizeVideoQuality(playInfo)
+	stream := downloader.Stream{
+		URLs: []downloader.URL{
+			{
+				URL:  playURL,
+				Size: playInfo.Size,
+				Ext:  ext,
+			},
+		},
+		Size:    playInfo.Size,
+		Quality: quality,
+	}
+
+	if old, ok := streams[quality]; ok && old.Size >= stream.Size {
+		return
+	}
+	streams[quality] = stream
+}
+
+func normalizeVideoQuality(playInfo services.VodPlayInfo) string {
+	if quality := strings.TrimSpace(playInfo.Quality); quality != "" {
+		return strings.ToLower(quality)
+	}
+	if definition := strings.TrimSpace(playInfo.Definition); definition != "" {
+		return strings.ToLower(definition)
+	}
+	if playInfo.Height > 0 {
+		return fmt.Sprintf("%dp", playInfo.Height)
+	}
+	if playInfo.Bitrate > 0 {
+		return fmt.Sprintf("%dk", playInfo.Bitrate/1000)
+	}
+	return "default"
+}
+
+func normalizeVideoExt(format, playURL string) string {
+	ext := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(format)), ".")
+	if ext != "" {
+		return ext
+	}
+
+	parsed, err := url.Parse(playURL)
+	if err != nil {
+		return "mp4"
+	}
+
+	pathExt := strings.TrimPrefix(strings.ToLower(path.Ext(parsed.Path)), ".")
+	if pathExt == "" {
+		return "mp4"
+	}
+	return pathExt
+}
+
+func pickAdaptiveM3U8URL(info *services.VodPlayInfoResp) string {
+	if info == nil {
+		return ""
+	}
+	adaptive := strings.TrimSpace(info.Result.AdaptiveInfo.MainPlayUrl)
+	if adaptive == "" {
+		adaptive = strings.TrimSpace(info.Result.AdaptiveInfo.BackupPlayUrl)
+	}
+	ext := normalizeVideoExt("", adaptive)
+	if ext == "m3u8" {
+		return adaptive
+	}
+	return ""
 }
 
 // extOdobDownloadData 生成 AudioBook 下载数据
