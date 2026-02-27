@@ -15,6 +15,10 @@
           <el-button round :icon="RefreshRight" @click="refreshList">刷新列表</el-button>
           <el-button round :icon="DownloadIcon" @click="goDownloadSetting">下载设置</el-button>
           <el-button round :icon="ChatDotRound" @click="openCommentSquare">书评广场</el-button>
+          <div class="view-toggle">
+            <button class="toggle-btn" :class="viewMode === 'card' ? 'active' : ''" @click="setViewMode('card')">卡片</button>
+            <button class="toggle-btn" :class="viewMode === 'list' ? 'active' : ''" @click="setViewMode('list')">列表</button>
+          </div>
         </div>
       </div>
 
@@ -80,7 +84,7 @@
       :infinite-scroll-disabled="disabled"
       :infinite-scroll-immediate="false"
     >
-      <div v-if="ebookList.length > 0" class="ebook-grid">
+      <div v-if="ebookList.length > 0" class="ebook-grid" :class="viewMode === 'list' ? 'list-mode' : ''">
         <div v-for="item in ebookList" :key="item.enid" class="ebook-card" @click="handleCardClick(item)">
           <div class="card-cover">
             <div v-if="item.is_group && item.group_books && item.group_books.length > 0" class="group-cover-grid">
@@ -130,6 +134,11 @@
             <div class="card-overlay">
               <div class="overlay-actions">
                 <template v-if="!item.is_group">
+                  <el-tooltip content="阅读" :show-after="450">
+                    <el-button circle size="small" type="success" @click.stop="openEbookRead(item)">
+                      <el-icon><Reading /></el-icon>
+                    </el-button>
+                  </el-tooltip>
                   <el-tooltip content="详情" :show-after="450">
                     <el-button circle size="small" @click.stop="handleProd(item.enid)">
                       <el-icon><View /></el-icon>
@@ -165,6 +174,34 @@
               <span v-if="item.price" class="price">¥{{ item.price }}</span>
               <el-tag v-if="item.is_group" size="small" effect="plain">分组</el-tag>
             </div>
+          </div>
+
+          <div v-if="!item.is_group" class="list-actions" @click.stop>
+            <el-tooltip content="阅读" :show-after="450">
+              <el-button circle size="small" type="success" @click.stop="openEbookRead(item)">
+                <el-icon><Reading /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="详情" :show-after="450">
+              <el-button circle size="small" @click.stop="handleProd(item.enid)">
+                <el-icon><View /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="下载" :show-after="450">
+              <el-button circle size="small" type="primary" @click.stop="openDownloadDialog(item)">
+                <el-icon><DownloadIcon /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="书评" :show-after="450">
+              <el-button circle size="small" @click.stop="gotoCommentList(item)">
+                <el-icon><ChatDotRound /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="移出书架" :show-after="450">
+              <el-button circle size="small" type="danger" @click.stop="ebookShelfRemove(item.enid)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </el-tooltip>
           </div>
         </div>
       </div>
@@ -209,6 +246,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
   View,
+  Reading,
   Download as DownloadIcon,
   Delete,
   Picture,
@@ -235,7 +273,7 @@ import { Local } from '../utils/storage'
 
 const store = userStore()
 const setStore = settingStore()
-const { pushEbookComment, pushSetting, pushLogin } = useAppRouter()
+const { pushEbookComment, pushSetting, pushLogin, pushEbookReader } = useAppRouter()
 
 const loading = ref(false)
 const initLoading = ref(true)
@@ -248,6 +286,7 @@ const dialogVisible = ref(false)
 const prodEnid = ref("")
 const filterOptions = ref<any[]>([])
 const currentFilter = ref('all')
+const viewMode = ref<'card' | 'list'>(Local.get('ebook_view_mode') === 'list' ? 'list' : 'card')
 
 const groupMode = reactive({
   active: false,
@@ -305,6 +344,11 @@ const safePercent = (val: any) => {
   const n = Number(val || 0)
   if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(100, Math.round(n)))
+}
+
+const setViewMode = (mode: 'card' | 'list') => {
+  viewMode.value = mode
+  Local.set('ebook_view_mode', mode)
 }
 
 const noMore = computed(() => {
@@ -410,7 +454,7 @@ const refreshList = () => {
 const openFirstEbook = () => {
   const first = normalBooks.value[0]
   if (first) {
-    handleProd(first.enid)
+    openEbookRead(first)
     return
   }
   const groupFirst = ebookList.value.find((item: any) => item?.is_group)
@@ -463,6 +507,43 @@ const handleCardClick = (item: any) => {
   } else {
     handleProd(item.enid)
   }
+}
+
+const resolveEbookEnid = (row: any) => {
+  const enid = String(row?.enid ?? '').trim()
+  if (enid) return enid
+
+  const raw = String(row?.dd_url ?? row?.ddurl ?? '').trim()
+  if (!raw) return ''
+
+  let full = raw
+  if (raw.startsWith('//')) full = `https:${raw}`
+  if (raw.startsWith('/')) full = `https://www.dedao.cn${raw}`
+  if (!full.startsWith('http://') && !full.startsWith('https://')) {
+    full = `https://www.dedao.cn/${full.replace(/^\/+/, '')}`
+  }
+
+  try {
+    const url = new URL(full)
+    return String(url.searchParams.get('id') || url.searchParams.get('enid') || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+const openEbookRead = (row: any) => {
+  const enid = resolveEbookEnid(row)
+  if (!enid) {
+    ElMessage({
+      message: "未获取到电子书标识，请先打开详情",
+      type: "warning",
+    })
+    return
+  }
+  pushEbookReader(enid, {
+    title: String(row?.title || '').trim(),
+    from: 'ebook',
+  })
 }
 
 const goDownloadSetting = () => {
@@ -552,6 +633,8 @@ onMounted(async () => {
   --ebook-accent-strong: #8d4a22;
   --ebook-paper: #fffaf2;
   --ebook-paper-soft: #f5ede2;
+  --list-cover-size: 52px;
+  --list-row-min-height: 78px;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -559,6 +642,11 @@ onMounted(async () => {
   padding: 18px;
   overflow: hidden;
   box-sizing: border-box;
+}
+
+.hero-content {
+  display: flex;
+  flex-direction: column;
 }
 
 .ebook-hero {
@@ -595,6 +683,7 @@ onMounted(async () => {
 
 .hero-subtitle {
   margin: 10px 0 0;
+  min-height: 48px;
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.7;
@@ -602,10 +691,48 @@ onMounted(async () => {
 }
 
 .hero-actions {
-  margin-top: 18px;
+  margin-top: 16px;
+  min-height: 40px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
+}
+
+.view-toggle {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 90%, transparent);
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  padding: 2px;
+  line-height: 1;
+}
+
+.toggle-btn {
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle-btn.active {
+  color: #fff;
+  background: var(--accent-color);
+}
+
+.hero-actions :deep(.el-button) {
+  height: 40px;
+  padding: 0 22px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .hero-stats {
@@ -711,6 +838,76 @@ onMounted(async () => {
   gap: 16px;
   padding: 4px;
   align-content: start;
+}
+
+.ebook-grid.list-mode {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.ebook-grid.list-mode .ebook-card {
+  display: grid;
+  grid-template-columns: var(--list-cover-size) minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: var(--list-row-min-height);
+  padding: 6px;
+}
+
+.ebook-grid.list-mode .card-cover {
+  width: var(--list-cover-size);
+  height: var(--list-cover-size);
+  aspect-ratio: 1;
+  border-radius: 8px;
+}
+
+.ebook-grid.list-mode .card-cover .card-overlay {
+  display: none;
+}
+
+.ebook-grid.list-mode .card-info {
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  gap: 2px;
+  padding: 4px 10px;
+}
+
+.ebook-grid.list-mode .card-title {
+  -webkit-line-clamp: 1;
+  font-size: 13px;
+  margin-bottom: 0;
+  text-align: left;
+}
+
+.ebook-grid.list-mode .card-intro {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 0;
+  -webkit-line-clamp: 1;
+  text-align: left;
+}
+
+.ebook-grid.list-mode .card-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.list-actions {
+  display: none;
+}
+
+.ebook-grid.list-mode .list-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
+.ebook-grid.list-mode .list-actions .el-button {
+  margin: 0;
 }
 
 .ebook-card {
@@ -1000,12 +1197,22 @@ onMounted(async () => {
 }
 
 @media (max-width: 620px) {
+  .view-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
   .hero-actions :deep(.el-button) {
     margin: 0;
   }
 
   .ebook-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ebook-grid.list-mode .ebook-card {
+    grid-template-columns: 1fr;
+    min-height: 0;
   }
 }
 </style>

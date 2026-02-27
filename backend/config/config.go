@@ -209,11 +209,33 @@ func (c *ConfigsData) lazyOpenConfigFile() (err error) {
 }
 
 func (c *ConfigsData) DeleteConfigFile() (err error) {
+	c.fileMu.Lock()
+	if c.configFile != nil {
+		_ = c.configFile.Close()
+		c.configFile = nil
+	}
+	c.fileMu.Unlock()
+
 	if c.configFilePath == "" {
 		return nil
 	}
 	err = os.Remove(c.configFilePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	return
+}
+
+// Reset clears all login state (memory + config file) and recreates a blank config.
+func (c *ConfigsData) Reset() error {
+	if err := c.DeleteConfigFile(); err != nil {
+		return err
+	}
+
+	c.AcitveUID = ""
+	c.Users = DedaoUsers{}
+	c.setActiveUser(&Dedao{})
+	return c.Save()
 }
 
 // New config
@@ -243,6 +265,9 @@ func GetConfigDir() string {
 
 // ActiveUserService user
 func (c *ConfigsData) ActiveUserService() *services.Service {
+	if c.activeUser == nil {
+		c.activeUser = &Dedao{}
+	}
 	if c.service == nil {
 		c.service = c.activeUser.New()
 	}
@@ -288,8 +313,12 @@ func (c *ConfigsData) ActiveUser() *Dedao {
 }
 
 func (c *ConfigsData) setActiveUser(u *Dedao) {
+	if u == nil {
+		u = &Dedao{}
+	}
 	c.AcitveUID = u.UIDHazy
 	c.activeUser = u
+	c.service = u.New()
 }
 
 // LoginUserCount 登录用户数量

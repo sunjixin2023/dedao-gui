@@ -29,3 +29,9 @@ func (a *App) TopicNotesList(id string, isElected bool, page, limit int) (list *
 	list, err = app.TopicNotesList(id, isElected, page, limit)
 	return
 }
+
+// KnowledgeCreateNote 发布知识城邦笔记（官方接口）
+func (a *App) KnowledgeCreateNote(noteContent, topicIDHazy string) (resp *services.CreateNoteResp, err error) {
+	resp, err = app.TopicCreateNote(noteContent, topicIDHazy)
+	return
+}

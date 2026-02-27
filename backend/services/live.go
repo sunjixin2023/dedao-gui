@@ -182,6 +182,38 @@ type LiveActivityInfo struct {
 	LiveActivityId       string `json:"live_activity_id"`
 }
 
+type LiveRoomPlaybackInfo struct {
+	Audio            string `json:"audio"`
+	DdmediaID        string `json:"ddmedia_id"`
+	Duration         int    `json:"duration"`
+	DurationText     string `json:"duration_text"`
+	Hd               string `json:"hd"`
+	Ld               string `json:"ld"`
+	PlaybackStatus   int    `json:"playback_status"`
+	ScreenProjection string `json:"screen_projection_url"`
+	Token            string `json:"token"`
+	TokenVersion     int    `json:"token_version"`
+	Ud               string `json:"ud"`
+	WebPcMediaToken  string `json:"web_pc_media_token"`
+}
+
+type LiveRoomDetail struct {
+	AliasID          string               `json:"alias_id"`
+	Title            string               `json:"title"`
+	Intro            string               `json:"intro"`
+	DdURL            string               `json:"dd_url"`
+	CurrentTime      int                  `json:"currenttime"`
+	Ld               string               `json:"ld"`
+	Hd               string               `json:"hd"`
+	LdM3U8           string               `json:"ld_m3u8"`
+	HdM3U8           string               `json:"hd_m3u8"`
+	L1Flv            string               `json:"L1flv"`
+	L2Flv            string               `json:"L2flv"`
+	L3Flv            string               `json:"L3flv"`
+	MinibarStreamURL string               `json:"minibar_stream_url"`
+	PlaybackInfo     LiveRoomPlaybackInfo `json:"playback_info"`
+}
+
 func (s *Service) LiveTabList() (list *LiveTabList, err error) {
 	body, err := s.reqLiveTabList()
 	if err != nil {
@@ -221,6 +253,18 @@ func (s *Service) LiveCheck(aliasID, inviteCode string) (detail *LiveCheck, err 
 
 func (s *Service) LiveBase(aliasID string) (detail *LiveBase, err error) {
 	body, err := s.reqLiveBase(aliasID)
+	if err != nil {
+		return
+	}
+	defer body.Close()
+	if err = handleJSONParse(body, &detail); err != nil {
+		return
+	}
+	return
+}
+
+func (s *Service) LiveRoomDetail(aliasID, liveUserUnionID, token string) (detail *LiveRoomDetail, err error) {
+	body, err := s.reqLiveRoomDetail(aliasID, liveUserUnionID, token)
 	if err != nil {
 		return
 	}

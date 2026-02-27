@@ -343,6 +343,15 @@ const resolvePageMeta = () => {
         return
     }
 
+    if (from.value === 'live') {
+        aType.value = 1
+        parentPath.name = ROUTE_NAMES.LIVE
+        parentPath.params = {}
+        parentPath.query = {}
+        breadcrumbItem1.value = String(route.query.parentTitle ?? '直播')
+        return
+    }
+
     aType.value = 1
     parentPath.name = ROUTE_NAMES.COURSE
     parentPath.params = {}
@@ -507,8 +516,12 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .article-page {
-    padding: 24px;
+    --article-shell-gutter: clamp(10px, 2vw, 28px);
+    --article-shell-max: calc(100% - var(--article-shell-gutter) * 2);
+    --article-aside-width: clamp(220px, 15vw, 300px);
+    padding: clamp(12px, 1.6vw, 24px);
     background: radial-gradient(circle at right top, #eaf5ff 0%, var(--fill-color-light) 40%, var(--bg-color) 100%);
+    width: 100%;
     height: calc(100vh - 60px);
     overflow-y: auto;
     box-sizing: border-box;
@@ -521,7 +534,8 @@ onUnmounted(() => {
 }
 
 .article-hero {
-    max-width: 1200px;
+    width: min(100%, var(--article-shell-max));
+    max-width: none;
     margin: 0 auto;
     padding: 20px 24px;
     border-radius: 16px;
@@ -568,7 +582,8 @@ onUnmounted(() => {
 }
 
 .reader-toolbar {
-    max-width: 1200px;
+    width: min(100%, var(--article-shell-max));
+    max-width: none;
     margin: 14px auto 0;
     border-radius: 14px;
     background: color-mix(in srgb, var(--card-bg) 92%, white 8%);
@@ -624,10 +639,11 @@ onUnmounted(() => {
 }
 
 .learning-grid {
-    max-width: 1200px;
+    width: min(100%, var(--article-shell-max));
+    max-width: none;
     margin: 14px auto 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(0, 1fr) var(--article-aside-width);
     gap: 16px;
     align-items: start;
 }
@@ -642,13 +658,17 @@ onUnmounted(() => {
 
 .markdown-shell {
     min-width: 0;
+    width: 100%;
 }
 
 .markdown-body {
     color: var(--text-primary);
     text-align: left;
+    width: 100%;
+    max-width: none;
+    margin: 0;
     background: var(--card-bg);
-    padding: 36px;
+    padding: clamp(18px, 2vw, 36px);
     border-radius: 16px;
     border: 1px solid var(--border-soft);
     box-shadow: var(--shadow-soft);
@@ -742,6 +762,23 @@ onUnmounted(() => {
 :deep(#content) {
     font-size: var(--reader-font-size, 17px);
     line-height: var(--reader-line-height, 1.9);
+    width: 100%;
+    max-width: none;
+}
+
+:deep(#content > *),
+:deep(#content div),
+:deep(#content section),
+:deep(#content article),
+:deep(#content table) {
+    max-width: 100% !important;
+}
+
+:deep(#content div),
+:deep(#content section),
+:deep(#content article),
+:deep(#content p) {
+    width: auto !important;
 }
 
 :deep(#content h1),

@@ -37,3 +37,12 @@ func TopicNotesTimeline(maxID string) (list *services.NotesTimeline, err error) 
 	}
 	return
 }
+
+// TopicCreateNote 发布知识城邦笔记
+func TopicCreateNote(noteContent, topicIDHazy string) (resp *services.CreateNoteResp, err error) {
+	resp, err = getService().TopicCreateNote(noteContent, topicIDHazy)
+	if err != nil {
+		return
+	}
+	return
+}

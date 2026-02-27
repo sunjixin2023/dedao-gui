@@ -3,6 +3,7 @@
 import {services} from '../models';
 import {backend} from '../models';
 import {options} from '../models';
+import {http} from '../models';
 
 export function AlgoFilter(arg1:services.AlgoFilterParam):Promise<services.AlgoFilterResp>;
 
@@ -36,15 +37,29 @@ export function CourseInfo(arg1:string):Promise<services.CourseInfo>;
 
 export function CourseList(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number):Promise<services.CourseList>;
 
+export function EbookChapterHtml(arg1:string,arg2:string):Promise<string>;
+
+export function EbookChapterPageCount(arg1:string,arg2:string):Promise<number>;
+
+export function EbookChapterPages(arg1:string,arg2:string):Promise<Array<string>>;
+
 export function EbookCommentList(arg1:string,arg2:number,arg3:number):Promise<services.EbookCommentList>;
 
 export function EbookDownload(arg1:number,arg2:number,arg3:string):Promise<void>;
 
 export function EbookInfo(arg1:string):Promise<services.EbookDetail>;
 
+export function EbookReadInfo(arg1:string):Promise<services.EbookInfo>;
+
 export function EbookShelfAdd(arg1:Array<string>):Promise<services.EbookShelfAddResp>;
 
 export function EbookShelfRemove(arg1:Array<string>):Promise<services.EbookShelfAddResp>;
+
+export function EbookSyncDelete(arg1:string):Promise<services.NoteDestroyResp>;
+
+export function EbookSyncSave(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<services.EbookNoteSaveResp>;
+
+export function EbookSyncedNotes(arg1:string):Promise<services.EbookNoteListResp>;
 
 export function EbookUserInfo():Promise<services.EbookVIPInfo>;
 
@@ -59,6 +74,18 @@ export function GetQrcode():Promise<backend.QrCodeResp>;
 export function GetVolcPlayAuthToken(arg1:string,arg2:string):Promise<services.MediaVolc>;
 
 export function GetVolcPlayInfo(arg1:string):Promise<services.VodPlayInfoResp>;
+
+export function KnowledgeCreateNote(arg1:string,arg2:string):Promise<services.CreateNoteResp>;
+
+export function LiveBase(arg1:string):Promise<services.LiveBase>;
+
+export function LiveCheck(arg1:string,arg2:string):Promise<services.LiveCheck>;
+
+export function LiveList(arg1:number,arg2:number,arg3:number):Promise<services.LiveList>;
+
+export function LiveRoomDetail(arg1:string,arg2:string,arg3:string):Promise<services.LiveRoomDetail>;
+
+export function LiveTabList():Promise<services.LiveTabList>;
 
 export function Logout():Promise<void>;
 
@@ -82,11 +109,15 @@ export function SearchHot():Promise<services.SearchTot>;
 
 export function SetDir(arg1:Array<string>):Promise<void>;
 
+export function SetDirConfig(arg1:backend.DirConfig):Promise<void>;
+
 export function SunflowerLabelContent(arg1:string,arg2:number,arg3:number,arg4:number):Promise<services.SunflowerContent>;
 
 export function SunflowerLabelList(arg1:number):Promise<services.SunflowerLabelList>;
 
 export function SunflowerResourceList():Promise<services.SunflowerResourceList>;
+
+export function SvgHandler():Promise<http.Handler>;
 
 export function TopicAll(arg1:number,arg2:number):Promise<services.TopicAll>;
 

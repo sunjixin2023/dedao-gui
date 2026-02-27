@@ -174,6 +174,12 @@ type NotesTimeline struct {
 	Notes  []NoteDetail `json:"notes"`
 }
 
+// CreateNoteResp 发布知识城邦笔记返回
+type CreateNoteResp struct {
+	NoteIDHazy string `json:"note_id_hazy"`
+	Trace      string `json:"trace"`
+}
+
 // TopicAll topic all
 func (s *Service) TopicAll(page, limit int) (list *TopicAll, err error) {
 
@@ -225,6 +231,20 @@ func (s *Service) TopicNotesTimeline(maxID string) (list *NotesTimeline, err err
 	defer body.Close()
 
 	if err = handleJSONParse(body, &list); err != nil {
+		return
+	}
+	return
+}
+
+// TopicCreateNote 发布知识城邦笔记
+func (s *Service) TopicCreateNote(noteContent, topicIDHazy string) (resp *CreateNoteResp, err error) {
+	body, err := s.reqTopicCreateNote(noteContent, topicIDHazy)
+	if err != nil {
+		return
+	}
+	defer body.Close()
+
+	if err = handleJSONParse(body, &resp); err != nil {
 		return
 	}
 	return

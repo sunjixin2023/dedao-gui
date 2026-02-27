@@ -27,7 +27,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "dedao-gui",
+		Title:     "dedao",
 		Width:     1280,
 		Height:    1000,
 		MinWidth:  1024,
@@ -35,7 +35,8 @@ func main() {
 		MaxWidth:  2560,
 		MaxHeight: 1440,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets:  assets,
+			Handler: app.SvgHandler(),
 		},
 		BackgroundColour:   &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:          app.Startup,
@@ -84,7 +85,7 @@ func main() {
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 			About: &mac.AboutInfo{
-				Title:   "dedao gui downloader",
+				Title:   "dedao",
 				Message: "https://github.com/yann0917/dedao-gui",
 				Icon:    icon,
 			},

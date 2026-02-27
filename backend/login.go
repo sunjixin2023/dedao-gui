@@ -2,6 +2,8 @@ package backend
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 
 	"strings"
 
@@ -22,24 +24,51 @@ type LoginResult struct {
 	User   *services.User `json:"user"`
 }
 
-var Instance *services.Service
+var (
+	Instance     *services.Service
+	instanceOnce sync.Once
+)
+
+func GetInstance() *services.Service {
+	instanceOnce.Do(func() {
+		Instance = config.Instance.ActiveUserService()
+	})
+	return Instance
+}
+
+func ResetInstance() {
+	instanceOnce = sync.Once{}
+	Instance = nil
+}
 
 func init() {
 	Instance = config.Instance.ActiveUserService()
 }
 func (a *App) GetQrcode() (qrCode QrCodeResp, err error) {
-	token, err := Instance.LoginAccessToken()
+	if Instance == nil {
+		Instance = config.Instance.ActiveUserService()
+	}
+
+	var token string
+	for attempt := 1; attempt <= 2; attempt++ {
+		token, err = Instance.LoginAccessToken()
+		if err == nil && strings.TrimSpace(token) != "" && !strings.Contains(strings.ToLower(token), "csrf token") {
+			break
+		}
+		// 刷新一次首页 cookie/csrf 后重试，兼容登录态变更与网络抖动
+		services.CsrfToken = ""
+		_, _ = Instance.GetHomeInitialState()
+	}
 	if err != nil {
 		return
 	}
-	if strings.Contains(token, "invalid csrf token") {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return qrCode, fmt.Errorf("获取扫码登录 token 失败：空响应")
+	}
+	if strings.Contains(strings.ToLower(token), "csrf token") {
 		app.Logout()
-		services.CsrfToken = ""
-		_, _ = Instance.GetHomeInitialState()
-		token, err = Instance.LoginAccessToken()
-		if err != nil {
-			return
-		}
+		return qrCode, errors.New("登录态可能失效，请重置登录状态后重试")
 	}
 	code, err := Instance.GetQrcode(token)
 	if err != nil {
@@ -78,6 +107,11 @@ func (a *App) CheckLogin(token, qrCodeString string) (result LoginResult, err er
 
 func (a *App) Logout() (err error) {
 	err = app.Logout()
+	if err != nil {
+		return
+	}
+	ResetInstance()
+	Instance = config.Instance.ActiveUserService()
 	return
 }
 

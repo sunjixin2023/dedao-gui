@@ -29,15 +29,29 @@
           <strong :title="mediaId">{{ mediaId ? trimToken(mediaId) : "未提供" }}</strong>
         </article>
         <article class="stat-card">
-          <span>security_token</span>
-          <strong :title="securityToken">{{ securityToken ? trimToken(securityToken) : "未提供" }}</strong>
+          <span>{{ hasStreamUrl ? 'stream_url' : 'security_token' }}</span>
+          <strong :title="hasStreamUrl ? streamUrl : securityToken">
+            {{ hasStreamUrl ? trimToken(streamUrl) : (securityToken ? trimToken(securityToken) : "未提供") }}
+          </strong>
         </article>
       </div>
     </section>
 
     <section class="player-workspace">
       <div class="player-stage">
-        <div ref="playerRoot" id="veplayer" class="veplayer-container"></div>
+        <video
+          v-if="hasStreamUrl"
+          ref="nativeVideoRef"
+          class="native-video"
+          :src="streamUrl"
+          controls
+          autoplay
+          playsinline
+          preload="auto"
+          @error="onNativeVideoError"
+          @loadeddata="onNativeVideoLoaded"
+        />
+        <div v-else ref="playerRoot" id="veplayer" class="veplayer-container"></div>
 
         <div v-if="loading" class="veplayer-loading">
           <el-skeleton :rows="3" animated style="width: 360px" />
@@ -84,13 +98,12 @@ import { ElMessage } from 'element-plus'
 import { DocumentCopy, RefreshRight } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { userStore } from '../stores/user'
+import { hasBackendBridge, invokeBackend } from '../utils/backend'
 
 type VePlayerCtor = new (options: Record<string, any>) => {
   dispose?: () => void
   on?: (event: string, cb: (...args: any[]) => void) => void
 }
-
-type GetVolcPlayAuthTokenFn = (mediaId: string, securityToken: string) => Promise<MediaVolcLike>
 
 type MediaVolcLike = {
   volc_play_auth_token?: string
@@ -102,28 +115,32 @@ type MediaVolcLike = {
   }>
 }
 
-type WailsWindowLike = Window & {
-  go?: {
-    backend?: {
-      App?: {
-        GetVolcPlayAuthToken?: GetVolcPlayAuthTokenFn
-      }
-    }
-  }
-}
-
 const route = useRoute()
 const router = useRouter()
 const store = userStore()
 
 const playerRoot = ref<HTMLDivElement | null>(null)
 const playerSdk = ref<InstanceType<VePlayerCtor> | null>(null)
+const nativeVideoRef = ref<HTMLVideoElement | null>(null)
 const loading = ref(false)
 const errorText = ref('')
 
 const title = computed(() => String(route.query.title ?? '视频'))
 const mediaId = computed(() => String(route.query.media_id ?? '').trim())
 const securityToken = computed(() => String(route.query.security_token ?? '').trim())
+const normalizeStreamUrl = (raw: unknown) => {
+  const value = String(raw ?? '').trim()
+  if (!value) return ''
+  if (value.startsWith('http://') || value.startsWith('https://')) return value
+  if (value.startsWith('//')) return `https:${value}`
+  return ''
+}
+const streamUrl = computed(() => {
+  const candidates = [route.query.stream_url, route.query.streamUrl, route.query.live_url]
+  const matched = candidates.find((item) => typeof item === 'string' && item.trim().length > 0)
+  return normalizeStreamUrl(matched ?? '')
+})
+const hasStreamUrl = computed(() => Boolean(streamUrl.value))
 const routePlayAuthToken = computed(() => {
   const candidates = [
     route.query.play_auth_token,
@@ -138,18 +155,19 @@ const lineAppId = computed(() => {
   const n = Number(route.query.line_app_id ?? '')
   return Number.isFinite(n) && n > 0 ? n : 233260
 })
-const hasPlaybackParams = computed(() => hasRouteToken.value || Boolean(mediaId.value && securityToken.value))
+const hasPlaybackParams = computed(() => hasStreamUrl.value || hasRouteToken.value || Boolean(mediaId.value && securityToken.value))
 const missingParamsText = computed(() => {
   if (hasPlaybackParams.value) return ''
-  return '当前路由缺少播放参数：请提供 media_id + security_token，或直接提供 play_auth_token。'
+  return '当前路由缺少播放参数：请提供 stream_url，或 media_id + security_token，或直接提供 play_auth_token。'
 })
 const runtimeModeText = computed(() => {
-  return hasWailsBackendBridge() ? '桌面应用' : '浏览器预览'
+  return hasBackendBridge() ? '桌面应用' : '浏览器预览'
 })
 const statusText = computed(() => {
   if (loading.value) return '加载中'
   if (missingParamsText.value) return '参数缺失'
   if (errorText.value) return '播放异常'
+  if (hasStreamUrl.value && nativeVideoRef.value) return '可播放'
   if (playerSdk.value) return '可播放'
   return '待启动'
 })
@@ -173,21 +191,13 @@ const WAILS_BRIDGE_POLL_MS = 80
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-const getWailsPlayTokenFn = () => {
-  const fn = (window as WailsWindowLike).go?.backend?.App?.GetVolcPlayAuthToken
-  return typeof fn === 'function' ? fn : null
-}
-
-const hasWailsBackendBridge = () => Boolean(getWailsPlayTokenFn())
-
-const waitForWailsPlayTokenFn = async (timeoutMs = WAILS_BRIDGE_WAIT_MS) => {
+const waitForBackendBridge = async (timeoutMs = WAILS_BRIDGE_WAIT_MS) => {
   const deadline = Date.now() + timeoutMs
   while (Date.now() <= deadline) {
-    const fn = getWailsPlayTokenFn()
-    if (fn) return fn
+    if (hasBackendBridge()) return true
     await sleep(WAILS_BRIDGE_POLL_MS)
   }
-  return null
+  return false
 }
 
 const ensureCssLoaded = (href: string) => {
@@ -255,7 +265,7 @@ const pickPlayAuthToken = (volc: MediaVolcLike | null | undefined) => {
 const normalizeErrorMessage = (raw: string) => {
   const msg = String(raw ?? '').trim()
   if (!msg) return '播放失败，请稍后重试'
-  if (msg.includes("reading 'backend'")) {
+  if (msg.includes("reading 'backend'") || msg.includes('桌面后端未就绪')) {
     return '当前环境无法调用桌面端播放服务。请在桌面应用中播放，或在链接中提供 play_auth_token。'
   }
   return msg
@@ -283,6 +293,34 @@ const destroyPlayer = () => {
   } finally {
     playerSdk.value = null
     if (playerRoot.value) playerRoot.value.innerHTML = ''
+    if (nativeVideoRef.value) {
+      nativeVideoRef.value.pause()
+      nativeVideoRef.value.removeAttribute('src')
+      nativeVideoRef.value.load()
+    }
+  }
+}
+
+const onNativeVideoLoaded = () => {
+  errorText.value = ''
+}
+
+const onNativeVideoError = () => {
+  errorText.value = '直播流加载失败，请稍后重试'
+}
+
+const startNativePlayback = async () => {
+  await nextTick()
+  if (!nativeVideoRef.value || !streamUrl.value) {
+    throw new Error('直播播放器容器未就绪')
+  }
+
+  destroyPlayer()
+  nativeVideoRef.value.src = streamUrl.value
+  nativeVideoRef.value.load()
+  try {
+    await nativeVideoRef.value.play()
+  } catch {
   }
 }
 
@@ -295,12 +333,12 @@ const fetchPlayAuthToken = async () => {
     throw new Error('缺少 media_id 或 security_token')
   }
 
-  const invokeTokenApi = await waitForWailsPlayTokenFn()
-  if (!invokeTokenApi) {
+  const backendReady = await waitForBackendBridge()
+  if (!backendReady) {
     throw new Error('当前环境无法调用桌面端播放服务。请在桌面应用中播放，或在链接中提供 play_auth_token。')
   }
 
-  const volc = (await invokeTokenApi(mediaId.value, securityToken.value)) as unknown as MediaVolcLike
+  const volc = await invokeBackend<MediaVolcLike>('GetVolcPlayAuthToken', mediaId.value, securityToken.value)
   const token = pickPlayAuthToken(volc)
   if (!token) {
     throw new Error('未获取到火山点播 playAuthToken')
@@ -376,6 +414,10 @@ const reload = async () => {
   loading.value = true
   errorText.value = ''
   try {
+    if (hasStreamUrl.value) {
+      await startNativePlayback()
+      return
+    }
     const token = await fetchPlayAuthToken()
     await createPlayer(token)
   } catch (err) {
@@ -395,9 +437,11 @@ const copyDebugInfo = async () => {
   const content = [
     `title=${title.value}`,
     `runtime=${runtimeModeText.value}`,
+    `play_mode=${hasStreamUrl.value ? 'direct_stream' : 'token'}`,
+    `stream_url=${streamUrl.value}`,
     `media_id=${mediaId.value}`,
     `security_token=${securityToken.value}`,
-    `token_source=${hasRouteToken.value ? 'route_query' : 'wails_backend'}`,
+    `token_source=${hasRouteToken.value ? 'route_query' : hasStreamUrl.value ? 'stream_url' : 'wails_backend'}`,
     `line_app_id=${lineAppId.value}`,
     `status=${statusText.value}`,
     `error=${errorText.value}`,
@@ -411,7 +455,7 @@ const copyDebugInfo = async () => {
   }
 }
 
-const routeKey = computed(() => `${mediaId.value}|${securityToken.value}|${routePlayAuthToken.value}|${lineAppId.value}`)
+const routeKey = computed(() => `${streamUrl.value}|${mediaId.value}|${securityToken.value}|${routePlayAuthToken.value}|${lineAppId.value}`)
 watch(routeKey, () => reload(), { immediate: true })
 
 onUnmounted(() => {
@@ -532,6 +576,15 @@ onUnmounted(() => {
   height: 100%;
   min-height: 420px;
   background: #000;
+}
+
+.native-video {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  display: block;
+  background: #000;
+  object-fit: contain;
 }
 
 .veplayer-loading,

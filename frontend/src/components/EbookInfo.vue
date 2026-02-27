@@ -26,6 +26,9 @@
                 <el-tag class="ml-2" type="warning" v-if="ebookInfo.is_vip_book==1" round>
                   会员免费</el-tag>
                 <el-tag class="ml-2" type="info" v-if="ebookInfo.read_time">阅读总时长：{{secondToHour(ebookInfo.read_time)}}</el-tag>
+                <el-button class="read-action" type="success" @click="openReader">
+                  <el-icon><Reading /></el-icon>立即阅读
+                </el-button>
                 <el-button v-if="ebookInfo.is_on_bookshelf==false" class="primary-action" @click="ebookShelfAdd(ebookInfo.enid)">
                   <el-icon><Plus /></el-icon>加入书架
                 </el-button>
@@ -97,9 +100,9 @@ import { services } from '../../wailsjs/go/models'
 import { repeat } from 'lodash'
 import { secondToHour } from '../utils/utils'
 import { useAppRouter } from '../composables/useRouter'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete, Reading } from '@element-plus/icons-vue'
 
-const { pushEbookComment } = useAppRouter()
+const { pushEbookComment, pushEbookReader } = useAppRouter()
 const dialogVisible = ref(false)
 
 let ebookInfo = reactive(new services.EbookDetail)
@@ -196,6 +199,43 @@ const openDialog = () => {
 const closeDialog = () => {
   ebookInfo = reactive(new services.EbookDetail)
   emits('close')
+}
+
+const resolveReadEnid = () => {
+  const enid = String(ebookInfo.enid || '').trim()
+  if (enid) return enid
+
+  const raw = String(ebookInfo.add_studylist_dd_url || '').trim()
+  if (!raw) return ''
+
+  let full = raw
+  if (raw.startsWith('//')) full = `https:${raw}`
+  if (raw.startsWith('/')) full = `https://www.dedao.cn${raw}`
+  if (!full.startsWith('http://') && !full.startsWith('https://')) {
+    full = `https://www.dedao.cn/${full.replace(/^\/+/, '')}`
+  }
+
+  try {
+    const url = new URL(full)
+    return String(url.searchParams.get('id') || url.searchParams.get('enid') || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+const openReader = () => {
+  const enid = resolveReadEnid()
+  if (!enid) {
+    ElMessage({
+      message: '未获取到电子书标识，请稍后再试',
+      type: 'warning'
+    })
+    return
+  }
+  pushEbookReader(enid, {
+    title: String(ebookInfo.title || '').trim(),
+    from: 'ebook',
+  })
 }
 
 const gotoCommentList = (row: any) => {
@@ -333,6 +373,11 @@ const gotoCommentList = (row: any) => {
     border-color: var(--accent-hover);
     transform: translateY(-2px);
   }
+}
+
+.card-header .read-action {
+  margin-right: 8px;
+  border-radius: 8px;
 }
 
 .book-intro {

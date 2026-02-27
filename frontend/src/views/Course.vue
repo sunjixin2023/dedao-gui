@@ -14,6 +14,10 @@
                     </el-button>
                     <el-button round :icon="RefreshRight" @click="refreshList">刷新列表</el-button>
                     <el-button round :icon="Download" @click="goDownloadSetting">下载设置</el-button>
+                    <div class="view-toggle">
+                        <button class="toggle-btn" :class="viewMode === 'card' ? 'active' : ''" @click="setViewMode('card')">卡片</button>
+                        <button class="toggle-btn" :class="viewMode === 'list' ? 'active' : ''" @click="setViewMode('list')">列表</button>
+                    </div>
                 </div>
             </div>
 
@@ -64,7 +68,7 @@
             :infinite-scroll-disabled="disabled"
             :infinite-scroll-immediate="false"
         >
-            <div v-if="courseList.length > 0" class="course-grid">
+            <div v-if="courseList.length > 0" class="course-grid" :class="viewMode === 'list' ? 'list-mode' : ''">
                 <div
                     v-for="item in courseList"
                     :key="item.id"
@@ -134,6 +138,15 @@
                              <div class="progress-fill" :style="{ width: safePercent(item.progress) + '%' }"></div>
                         </div>
                     </div>
+
+                    <div v-if="!item.is_group" class="list-actions" @click.stop>
+                        <el-tooltip content="详情" :show-after="400">
+                            <el-button circle size="small" type="primary" :icon="View" @click.stop="handleProd(item.enid)" />
+                        </el-tooltip>
+                        <el-tooltip content="下载" :show-after="400">
+                            <el-button circle size="small" type="warning" :icon="Download" @click.stop="openDownloadDialog(item)" />
+                        </el-tooltip>
+                    </div>
                 </div>
             </div>
 
@@ -196,6 +209,7 @@ const pageSize = ref(20)
 const lastPageSize = ref(20)
 const currentFilter = ref('all')
 const filterOptions = ref<any[]>([])
+const viewMode = ref<'card' | 'list'>(Local.get('course_view_mode') === 'list' ? 'list' : 'card')
 
 const dialogVisible = ref(false)
 const prodEnid = ref("")
@@ -240,6 +254,11 @@ const safePercent = (val: any) => {
     const n = Number(val || 0)
     if (!Number.isFinite(n)) return 0
     return Math.max(0, Math.min(100, Math.round(n)))
+}
+
+const setViewMode = (mode: 'card' | 'list') => {
+    viewMode.value = mode
+    Local.set('course_view_mode', mode)
 }
 
 const noMore = computed(() => {
@@ -439,12 +458,19 @@ onMounted(async () => {
 
 <style scoped>
 .course-container {
+    --list-cover-size: 52px;
+    --list-row-min-height: 68px;
     height: 100%;
     display: flex;
     flex-direction: column;
     gap: 16px;
     padding: 18px;
     box-sizing: border-box;
+}
+
+.hero-content {
+    display: flex;
+    flex-direction: column;
 }
 
 .learning-hero {
@@ -483,16 +509,55 @@ onMounted(async () => {
 .hero-subtitle {
     margin: 10px 0 0;
     max-width: 760px;
+    min-height: 48px;
     color: var(--text-secondary);
     font-size: 14px;
     line-height: 1.7;
 }
 
 .hero-actions {
-    margin-top: 18px;
+    margin-top: 16px;
+    min-height: 40px;
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
+}
+
+.view-toggle {
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
+    background: color-mix(in srgb, var(--card-bg) 90%, transparent);
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    padding: 2px;
+    line-height: 1;
+}
+
+.toggle-btn {
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    padding: 0 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.toggle-btn.active {
+    color: #fff;
+    background: var(--accent-color);
+}
+
+.hero-actions :deep(.el-button) {
+    height: 40px;
+    padding: 0 22px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
 }
 
 .hero-stats {
@@ -568,6 +633,71 @@ onMounted(async () => {
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 16px;
     padding: 4px;
+}
+
+.course-grid.list-mode {
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.course-grid.list-mode .course-card {
+    display: grid;
+    grid-template-columns: var(--list-cover-size) minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: var(--list-row-min-height);
+    padding: 6px;
+}
+
+.course-grid.list-mode .card-cover {
+    width: var(--list-cover-size);
+    height: var(--list-cover-size);
+    aspect-ratio: 1;
+    border-radius: 8px;
+}
+
+.course-grid.list-mode .card-cover .card-overlay {
+    display: none;
+}
+
+.course-grid.list-mode .card-content {
+    justify-content: flex-start;
+    align-items: flex-start;
+    text-align: left;
+    padding: 4px 10px;
+}
+
+.course-grid.list-mode .card-title {
+    -webkit-line-clamp: 1;
+    margin-bottom: 1px;
+    font-size: 13px;
+    text-align: left;
+}
+
+.course-grid.list-mode .card-meta {
+    margin-bottom: 2px;
+    font-size: 11px;
+    text-align: left;
+    justify-content: flex-start;
+}
+
+.course-grid.list-mode .progress-bar {
+    height: 2px;
+}
+
+.list-actions {
+    display: none;
+}
+
+.course-grid.list-mode .list-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    flex-shrink: 0;
+}
+
+.course-grid.list-mode .list-actions .el-button {
+    margin: 0;
 }
 
 .course-card {
@@ -854,8 +984,18 @@ onMounted(async () => {
         margin: 0;
     }
 
+    .view-toggle {
+        width: 100%;
+        justify-content: center;
+    }
+
     .course-grid {
         grid-template-columns: 1fr;
+    }
+
+    .course-grid.list-mode .course-card {
+        grid-template-columns: 1fr;
+        min-height: 0;
     }
 }
 </style>

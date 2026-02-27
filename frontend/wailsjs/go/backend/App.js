@@ -66,6 +66,18 @@ export function CourseList(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['backend']['App']['CourseList'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function EbookChapterHtml(arg1, arg2) {
+  return window['go']['backend']['App']['EbookChapterHtml'](arg1, arg2);
+}
+
+export function EbookChapterPageCount(arg1, arg2) {
+  return window['go']['backend']['App']['EbookChapterPageCount'](arg1, arg2);
+}
+
+export function EbookChapterPages(arg1, arg2) {
+  return window['go']['backend']['App']['EbookChapterPages'](arg1, arg2);
+}
+
 export function EbookCommentList(arg1, arg2, arg3) {
   return window['go']['backend']['App']['EbookCommentList'](arg1, arg2, arg3);
 }
@@ -78,12 +90,28 @@ export function EbookInfo(arg1) {
   return window['go']['backend']['App']['EbookInfo'](arg1);
 }
 
+export function EbookReadInfo(arg1) {
+  return window['go']['backend']['App']['EbookReadInfo'](arg1);
+}
+
 export function EbookShelfAdd(arg1) {
   return window['go']['backend']['App']['EbookShelfAdd'](arg1);
 }
 
 export function EbookShelfRemove(arg1) {
   return window['go']['backend']['App']['EbookShelfRemove'](arg1);
+}
+
+export function EbookSyncDelete(arg1) {
+  return window['go']['backend']['App']['EbookSyncDelete'](arg1);
+}
+
+export function EbookSyncSave(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['backend']['App']['EbookSyncSave'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function EbookSyncedNotes(arg1) {
+  return window['go']['backend']['App']['EbookSyncedNotes'](arg1);
 }
 
 export function EbookUserInfo() {
@@ -112,6 +140,30 @@ export function GetVolcPlayAuthToken(arg1, arg2) {
 
 export function GetVolcPlayInfo(arg1) {
   return window['go']['backend']['App']['GetVolcPlayInfo'](arg1);
+}
+
+export function KnowledgeCreateNote(arg1, arg2) {
+  return window['go']['backend']['App']['KnowledgeCreateNote'](arg1, arg2);
+}
+
+export function LiveBase(arg1) {
+  return window['go']['backend']['App']['LiveBase'](arg1);
+}
+
+export function LiveCheck(arg1, arg2) {
+  return window['go']['backend']['App']['LiveCheck'](arg1, arg2);
+}
+
+export function LiveList(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['LiveList'](arg1, arg2, arg3);
+}
+
+export function LiveRoomDetail(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['LiveRoomDetail'](arg1, arg2, arg3);
+}
+
+export function LiveTabList() {
+  return window['go']['backend']['App']['LiveTabList']();
 }
 
 export function Logout() {
@@ -158,6 +210,10 @@ export function SetDir(arg1) {
   return window['go']['backend']['App']['SetDir'](arg1);
 }
 
+export function SetDirConfig(arg1) {
+  return window['go']['backend']['App']['SetDirConfig'](arg1);
+}
+
 export function SunflowerLabelContent(arg1, arg2, arg3, arg4) {
   return window['go']['backend']['App']['SunflowerLabelContent'](arg1, arg2, arg3, arg4);
 }
@@ -168,6 +224,10 @@ export function SunflowerLabelList(arg1) {
 
 export function SunflowerResourceList() {
   return window['go']['backend']['App']['SunflowerResourceList']();
+}
+
+export function SvgHandler() {
+  return window['go']['backend']['App']['SvgHandler']();
 }
 
 export function TopicAll(arg1, arg2) {

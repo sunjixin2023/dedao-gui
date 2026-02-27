@@ -305,7 +305,9 @@ func (s *Service) EbookPages(chapterID, token string, index, count, offset int) 
 		// 检查返回的页面数据是否为空
 		if p == nil || len(p.Pages) == 0 {
 			// 如果返回的页面为空，可能是触发了反爬虫
-			recordRequestFailure(fmt.Errorf("返回的页面数据为空，可能触发了反爬虫"))
+			errAntiSpider := fmt.Errorf("返回的页面数据为空，可能触发了反爬虫")
+			recordRequestFailure(errAntiSpider)
+			return nil, errAntiSpider
 		}
 
 		return p, nil
@@ -564,6 +566,98 @@ type EbookShelfAddData struct {
 	Count int `json:"count"`
 }
 
+type EbookNoteItem struct {
+	NoteID     int64      `json:"note_id"`
+	NoteIDHazy string     `json:"note_id_hazy"`
+	Note       string     `json:"note"`
+	NoteLine   string     `json:"note_line"`
+	NoteType   int        `json:"note_type"`
+	CreateTime int64      `json:"create_time"`
+	UpdateTime int64      `json:"update_time"`
+	State      int        `json:"state"`
+	RefID      string     `json:"ref_id"`
+	Extra      NotesExtra `json:"extra"`
+}
+
+type EbookNoteListResp struct {
+	List []EbookNoteItem `json:"list"`
+}
+
+type EbookNoteSaveResp struct {
+	DeletedIds []string   `json:"deleted_ids"`
+	NoteID     int64      `json:"note_id"`
+	NoteIDHazy string     `json:"note_id_hazy"`
+	Note       string     `json:"note"`
+	NoteLine   string     `json:"note_line"`
+	NoteType   int        `json:"note_type"`
+	UpdateTime int64      `json:"update_time"`
+	State      int        `json:"state"`
+	Extra      NotesExtra `json:"extra"`
+}
+
+type EbookNoteWriteReq struct {
+	BookEnid         string
+	BookID           int
+	BookIsOldVersion int
+	BookOffset       int
+	BookSection      string
+	BookStartPos     int
+	Location         string
+	Note             string
+	NoteLine         string
+	NoteType         int
+	NoteID           int64
+	NoteIDHazy       string
+	RefID            string
+	State            int
+	Tags             []string
+	UpdateTime       int64
+}
+
+func (r *EbookNoteWriteReq) toBody() map[string]interface{} {
+	noteType := r.NoteType
+	if noteType == 0 {
+		noteType = 4
+	}
+	state := r.State
+	if state == 0 {
+		state = 5
+	}
+	updateTime := r.UpdateTime
+	if updateTime <= 0 {
+		updateTime = time.Now().Unix()
+	}
+
+	body := map[string]interface{}{
+		"book_enid":           r.BookEnid,
+		"book_id":             r.BookID,
+		"book_is_old_version": r.BookIsOldVersion,
+		"book_offset":         r.BookOffset,
+		"book_section":        r.BookSection,
+		"book_start_pos":      r.BookStartPos,
+		"location":            r.Location,
+		"note":                r.Note,
+		"note_line":           r.NoteLine,
+		"note_type":           noteType,
+		"ref_id":              r.RefID,
+		"state":               state,
+		"tags":                r.Tags,
+		"update_time":         updateTime,
+	}
+	if r.NoteID > 0 {
+		body["note_id"] = r.NoteID
+	}
+	if r.NoteIDHazy != "" {
+		body["note_id_hazy"] = r.NoteIDHazy
+	}
+	return body
+}
+
+type NoteDestroyResp struct {
+	NoteID     int64  `json:"note_id"`
+	NoteIDHazy string `json:"note_id_hazy"`
+}
+
 // EbookCommentList get ebook comment list
 // sort like_count
 func (s *Service) EbookCommentList(id, sort string, page, limit int) (list *EbookCommentList, err error) {
@@ -597,6 +691,58 @@ func (s *Service) EbookShelfAdd(ids []string) (resp *EbookShelfAddResp, err erro
 func (s *Service) EbookShelfRemove(ids []string) (resp *EbookShelfAddResp, err error) {
 
 	body, err := s.reqEbookShelfRemove(ids)
+	if err != nil {
+		return
+	}
+	defer body.Close()
+	if err = handleJSONParse(body, &resp); err != nil {
+		return
+	}
+	return
+}
+
+// EbookNoteList 获取电子书笔记列表（官方）
+func (s *Service) EbookNoteList(bookEnid string, bookID int, isOldVersion int) (list *EbookNoteListResp, err error) {
+	body, err := s.reqEbookNoteList(bookEnid, bookID, isOldVersion)
+	if err != nil {
+		return
+	}
+	defer body.Close()
+	if err = handleJSONParse(body, &list); err != nil {
+		return
+	}
+	return
+}
+
+// EbookNoteCreate 创建电子书笔记（官方）
+func (s *Service) EbookNoteCreate(req *EbookNoteWriteReq) (resp *EbookNoteSaveResp, err error) {
+	body, err := s.reqEbookNoteCreate(req.toBody())
+	if err != nil {
+		return
+	}
+	defer body.Close()
+	if err = handleJSONParse(body, &resp); err != nil {
+		return
+	}
+	return
+}
+
+// EbookNoteUpdate 更新电子书笔记（官方）
+func (s *Service) EbookNoteUpdate(req *EbookNoteWriteReq) (resp *EbookNoteSaveResp, err error) {
+	body, err := s.reqEbookNoteUpdate(req.toBody())
+	if err != nil {
+		return
+	}
+	defer body.Close()
+	if err = handleJSONParse(body, &resp); err != nil {
+		return
+	}
+	return
+}
+
+// NoteDestroy 删除笔记（官方）
+func (s *Service) NoteDestroy(noteIDHazy string) (resp *NoteDestroyResp, err error) {
+	body, err := s.reqNotesDestroy(noteIDHazy)
 	if err != nil {
 		return
 	}

@@ -40,6 +40,12 @@ func (a *App) OpenFileDialog(title string) (file string, err error) {
 	return
 }
 
+type DirConfig struct {
+	OutputDir  string `json:"outputDir"`
+	FfmpegDir  string `json:"ffmpegDir"`
+	WkToPdfDir string `json:"wkToPdfDir"`
+}
+
 func (a *App) SetDir(dir []string) (err error) {
 	if len(dir) > 0 {
 		app.OutputDir = dir[0]
@@ -56,6 +62,25 @@ func (a *App) SetDir(dir []string) (err error) {
 		}
 	}
 	if len(dir) > 2 {
+		if err = validateExecutablePath(utils.WkToPdfDir, "wkhtmltopdf"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) SetDirConfig(cfg DirConfig) (err error) {
+	if cfg.OutputDir != "" {
+		app.SetOutputDir(cfg.OutputDir)
+	}
+	if cfg.FfmpegDir != "" {
+		utils.FfmpegDir = cfg.FfmpegDir
+		if err = validateExecutablePath(utils.FfmpegDir, "ffmpeg"); err != nil {
+			return err
+		}
+	}
+	if cfg.WkToPdfDir != "" {
+		utils.WkToPdfDir = cfg.WkToPdfDir
 		if err = validateExecutablePath(utils.WkToPdfDir, "wkhtmltopdf"); err != nil {
 			return err
 		}

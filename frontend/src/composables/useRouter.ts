@@ -45,12 +45,31 @@ export function useAppRouter() {
       return router.push(buildRoute.odobDetail(id));
     },
 
+    pushLive() {
+      return router.push({ name: ROUTE_NAMES.LIVE });
+    },
+
     pushEbookList() {
       return router.push({ name: ROUTE_NAMES.EBOOK });
     },
 
+    pushEbookReader(enid: string, query?: Record<string, any>) {
+      return router.push({
+        name: ROUTE_NAMES.EBOOK_READER,
+        params: { id: enid },
+        query,
+      });
+    },
+
     pushEbookComment(query?: Record<string, any>) {
       return router.push(buildRoute.ebookComment(query));
+    },
+
+    pushKnowledgePublish(query?: Record<string, any>) {
+      return router.push({
+        name: ROUTE_NAMES.KNOWLEDGE_PUBLISH,
+        query,
+      });
     },
 
     pushVideo(query?: Record<string, any>) {
