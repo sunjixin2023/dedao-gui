@@ -81,6 +81,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item -Path build/bin/dedao.exe -Destination "release/${{ matrix.artifact }}.exe" -Force
           Compress-Archive -Path build/bin/* -DestinationPath "release/${{ matrix.artifact }}.zip" -Force
 
       - name: Upload build artifact
