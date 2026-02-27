@@ -25,11 +25,15 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) Startup(ctx context.Context) {
 	a.Ctx = ctx
+	setupCleanupOnExit()
 }
 
 func (a *App) Shutdown(ctx context.Context) {
-	// fmt.Println(a.Ctx)
-	setupCleanupOnExit()
+	// Gracefully close BadgerDB on normal shutdown
+	db, err := utils.GetBadgerDB(utils.GetDefaultBadgerDBPath())
+	if err == nil && db != nil {
+		_ = db.Close()
+	}
 }
 
 func (a *App) DomReady(ctx context.Context) {

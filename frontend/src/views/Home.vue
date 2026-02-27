@@ -15,22 +15,35 @@
             {{ lStore.hasLastArticle ? "继续上次文稿" : "开始学习" }}
           </el-button>
           <el-button round @click="goToCourseList">看课程</el-button>
+          <el-button round @click="goToLiveList">看直播</el-button>
           <el-button round @click="goToAudioList">听音频</el-button>
           <el-button round @click="goToEbookList">读电子书</el-button>
         </div>
       </div>
       <div class="deck-side">
-        <div class="deck-stat">
-          <span>今日学习</span>
-          <strong>{{ todayStudyMinutes }} 分钟</strong>
+        <div class="deck-side-head">
+          <span class="deck-side-title">学习快照</span>
+          <span class="deck-side-sub">实时同步</span>
         </div>
-        <div class="deck-stat">
-          <span>连续学习</span>
-          <strong>{{ studyStreakDays }} 天</strong>
-        </div>
-        <div class="deck-stat">
-          <span>文稿进度</span>
-          <strong>{{ lStore.hasLastArticle ? `${lStore.lastArticle?.progress ?? 0}%` : "暂无" }}</strong>
+        <div class="deck-stats-row">
+          <div class="deck-stat">
+            <span>今日学习</span>
+            <div class="deck-stat-value">
+              <strong>{{ todayStudyMinutes }}</strong>
+              <em>分钟</em>
+            </div>
+          </div>
+          <div class="deck-stat">
+            <span>连续学习</span>
+            <div class="deck-stat-value">
+              <strong>{{ studyStreakDays }}</strong>
+              <em>天</em>
+            </div>
+          </div>
+          <div class="deck-stat">
+            <span>文稿进度</span>
+            <strong>{{ articleProgressText }}</strong>
+          </div>
         </div>
         <button
           v-if="pStore.hasTrack"
@@ -449,6 +462,11 @@ const todayStudyMinutes = computed(() => {
 const studyStreakDays = computed(() => {
   return Math.max(0, Number(user.study_serial_days ?? 0));
 });
+const articleProgressText = computed(() => {
+  if (!lStore.hasLastArticle) return "暂无";
+  const progress = Number(lStore.lastArticle?.progress ?? 0);
+  return `${Math.max(0, Math.min(100, Math.round(progress)))}%`;
+});
 const nowPlayingTitle = computed(() => {
   return String(pStore.currentTrack?.title ?? "").trim() || "打开当前播放列表";
 });
@@ -534,6 +552,10 @@ const getUserInfo = async () => {
 
 const goToCourseList = () => {
   pushByName(ROUTE_NAMES.COURSE);
+};
+
+const goToLiveList = () => {
+  pushByName(ROUTE_NAMES.LIVE);
 };
 
 const goToAudioList = () => {
@@ -756,9 +778,10 @@ const gotoCategory = (item: any, label_id: string) => {
 .home-container-wrapper {
   position: relative;
   isolation: isolate;
-  padding: 24px;
-  max-width: 1460px;
-  margin: 0 auto;
+  padding: clamp(14px, 1.6vw, 24px);
+  width: 100%;
+  max-width: none;
+  margin: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -804,8 +827,10 @@ const gotoCategory = (item: any, label_id: string) => {
   position: relative;
   display: grid;
   grid-template-columns: 1fr 280px;
+  align-items: start;
   gap: 18px;
-  min-height: 170px;
+  min-height: auto;
+  height: auto;
   border-radius: 18px;
   padding: 22px;
   background:
@@ -815,6 +840,8 @@ const gotoCategory = (item: any, label_id: string) => {
   border: 1px solid color-mix(in srgb, var(--border-soft) 78%, transparent);
   box-shadow: 0 16px 34px rgba(12, 20, 36, 0.08);
   backdrop-filter: blur(14px);
+  overflow: visible;
+  z-index: 2;
 }
 
 .learning-deck::after {
@@ -870,17 +897,53 @@ const gotoCategory = (item: any, label_id: string) => {
 }
 
 .deck-side {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  align-content: start;
+  min-height: auto;
+  overflow: visible;
+}
+
+.deck-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.deck-side-head {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.deck-side-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.deck-side-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--fill-color-light) 72%, transparent);
 }
 
 .deck-stat {
-  padding: 10px 12px;
+  flex: 0 0 auto;
+  min-height: 56px;
+  padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--border-soft) 72%, transparent);
   background: color-mix(in srgb, var(--card-bg) 74%, transparent);
   text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .deck-stat span {
@@ -891,13 +954,31 @@ const gotoCategory = (item: any, label_id: string) => {
 
 .deck-stat strong {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   font-size: 16px;
   color: var(--text-primary);
 }
 
+.deck-stat-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.deck-stat-value strong {
+  margin-top: 0;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.deck-stat-value em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .deck-playing-btn {
-  margin-top: auto;
+  margin-top: 0;
   height: 40px;
   border: 0;
   border-radius: 10px;
@@ -923,6 +1004,8 @@ const gotoCategory = (item: any, label_id: string) => {
 }
 
 .workspace-lanes {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
@@ -1427,11 +1510,11 @@ const gotoCategory = (item: any, label_id: string) => {
 }
 
 .course-grid {
-  grid-template-columns: repeat(4, 1fr); /* 强制4列，与旧版逻辑保持一致，或者用 auto-fill */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
 .ebook-grid {
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
 }
 
 .content-card {
@@ -1648,6 +1731,17 @@ const gotoCategory = (item: any, label_id: string) => {
     gap: 14px;
   }
 
+  .deck-side {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-flow: row;
+    gap: 10px;
+  }
+
+  .deck-side-head {
+    grid-column: 1 / -1;
+  }
+
   .workspace-lanes {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1744,6 +1838,10 @@ const gotoCategory = (item: any, label_id: string) => {
 @media (max-width: 680px) {
   .deck-actions {
     width: 100%;
+  }
+
+  .deck-side {
+    grid-template-columns: 1fr;
   }
 
   .deck-actions :deep(.el-button) {

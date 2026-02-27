@@ -8,7 +8,7 @@ RELEASE_ARGS ?=
 .PHONY: help bootstrap run build release deploy clean
 
 help:
-	@echo "dedao-gui quick commands"
+	@echo "dedao quick commands"
 	@echo "  make bootstrap                 # install/verify dependencies"
 	@echo "  make run                       # run app in dev mode"
 	@echo "  make build                     # one-click build for current host + package artifact"

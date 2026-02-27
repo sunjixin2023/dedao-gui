@@ -50,7 +50,9 @@ func CheckLogin(token, qrCode string) (user *services.User, err error) {
 }
 
 func Logout() (err error) {
-	err = config.Instance.DeleteConfigFile()
+	services.CsrfToken = ""
+	services.SetCookie = nil
+	err = config.Instance.Reset()
 	return
 }
 

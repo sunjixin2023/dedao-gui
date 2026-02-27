@@ -38,10 +38,70 @@ func EbookShelfRemove(enIDs []string) (resp *services.EbookShelfAddResp, err err
 	return
 }
 
+// EbookSyncedNotes 获取官方电子书笔记列表
+func EbookSyncedNotes(enID string) (list *services.EbookNoteListResp, err error) {
+	detail, err := getService().EbookDetail(enID)
+	if err != nil {
+		return nil, err
+	}
+	bookID := 0
+	if detail != nil {
+		bookID = detail.ID
+	}
+	list, err = getService().EbookNoteList(enID, bookID, 0)
+	return
+}
+
+// EbookSyncSave 创建/更新官方电子书笔记
+func EbookSyncSave(enID, chapterID, noteLine, note, noteIDHazy string) (resp *services.EbookNoteSaveResp, err error) {
+	detail, err := getService().EbookDetail(enID)
+	if err != nil {
+		return nil, err
+	}
+	bookID := 0
+	if detail != nil {
+		bookID = detail.ID
+	}
+
+	req := &services.EbookNoteWriteReq{
+		BookEnid:         enID,
+		BookID:           bookID,
+		BookIsOldVersion: 0,
+		BookOffset:       0,
+		BookSection:      chapterID,
+		BookStartPos:     0,
+		Location:         chapterID,
+		Note:             note,
+		NoteLine:         noteLine,
+		NoteType:         4,
+		RefID:            chapterID,
+		State:            5,
+		Tags:             []string{},
+		NoteIDHazy:       noteIDHazy,
+	}
+
+	if noteIDHazy != "" {
+		resp, err = getService().EbookNoteUpdate(req)
+	} else {
+		resp, err = getService().EbookNoteCreate(req)
+	}
+	return
+}
+
+// EbookSyncDelete 删除官方电子书笔记
+func EbookSyncDelete(noteIDHazy string) (resp *services.NoteDestroyResp, err error) {
+	resp, err = getService().NoteDestroy(noteIDHazy)
+	return
+}
+
 func EbookInfo(enID string) (info *services.EbookInfo, err error) {
 	token, err1 := getService().EbookReadToken(enID)
 	if err1 != nil {
 		err = err1
+		return
+	}
+	if token == nil {
+		err = fmt.Errorf("failed to get ebook read token: token is nil")
 		return
 	}
 
@@ -49,10 +109,50 @@ func EbookInfo(enID string) (info *services.EbookInfo, err error) {
 	return
 }
 
+func EbookReadInfo(enID string) (info *services.EbookInfo, err error) {
+	info, err = EbookInfo(enID)
+	return
+}
+
+func EbookChapterPages(enID, chapterID string) (pages []string, err error) {
+	chID := strings.TrimSpace(chapterID)
+	if chID == "" {
+		err = fmt.Errorf("chapterID is required")
+		return
+	}
+
+	token, err1 := getService().EbookReadToken(enID)
+	if err1 != nil {
+		err = err1
+		return
+	}
+	if token == nil {
+		err = fmt.Errorf("failed to get ebook read token: token is nil")
+		return
+	}
+
+	pages, err = generateEbookPages(enID, chID, token.Token, 0, 20, 0)
+	return
+}
+
+func EbookChapterHtml(enID, chapterID string) (htmlContent string, err error) {
+	pages, err1 := EbookChapterPages(enID, chapterID)
+	if err1 != nil {
+		err = err1
+		return
+	}
+	htmlContent, err = utils.ChapterSvgToHtml(chapterID, pages)
+	return
+}
+
 func EbookPage(ctx context.Context, enID string) (info *services.EbookInfo, svgContent utils.SvgContents, err error) {
 	token, err1 := getService().EbookReadToken(enID)
 	if err1 != nil {
 		err = err1
+		return
+	}
+	if token == nil {
+		err = fmt.Errorf("failed to get ebook read token: token is nil")
 		return
 	}
 

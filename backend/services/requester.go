@@ -1,8 +1,10 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,36 +13,120 @@ import (
 
 // reqGetLoginAccessToken 扫码请求token
 func (s *Service) reqGetLoginAccessToken(csrfToken string) (string, error) {
-	resp, err := s.client.R().
-		SetHeader("Accept", "application/json, text/plain, */*").
-		SetHeaderVerbatim("Xi-Csrf-Token", csrfToken).
-		Post("/loginapi/getAccessToken")
-	if err != nil {
-		fmt.Printf("%#v\n", err.Error())
-		return "", err
+	token := strings.TrimSpace(csrfToken)
+	if token == "" {
+		token = strings.TrimSpace(CsrfToken)
 	}
-	accessToken := resp.String()
-	return accessToken, err
+
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		// csrf 为空时先尝试从首页初始化一轮 cookie/csrf
+		if token == "" {
+			_, _ = s.GetHomeInitialState()
+			token = strings.TrimSpace(CsrfToken)
+		}
+
+		resp, err := s.client.R().
+			SetHeader("Accept", "application/json, text/plain, */*").
+			SetHeaderVerbatim("Xi-Csrf-Token", token).
+			SetHeader("Content-Type", "application/x-www-form-urlencoded").
+			SetBody("").
+			Post("/loginapi/getAccessToken")
+		if err != nil {
+			lastErr = err
+			if attempt < 3 && shouldRetryLoginTokenErr(err) {
+				time.Sleep(time.Duration(attempt) * 250 * time.Millisecond)
+				continue
+			}
+			return "", err
+		}
+
+		body := strings.TrimSpace(resp.String())
+		if resp.StatusCode() >= http.StatusBadRequest {
+			if isCsrfIssueText(body) && attempt < 3 {
+				token = ""
+				time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
+				continue
+			}
+			if body == "" {
+				body = resp.Status()
+			}
+			return "", fmt.Errorf("getAccessToken failed(status=%d): %s", resp.StatusCode(), compactHTTPBody(body))
+		}
+
+		// 兼容少数情况下 200 但返回 JSON 错误体
+		if strings.HasPrefix(body, "{") && isCsrfIssueText(body) {
+			lastErr = errors.New(compactHTTPBody(body))
+			if attempt < 3 {
+				token = ""
+				continue
+			}
+			break
+		}
+
+		if body == "" {
+			lastErr = errors.New("empty access token")
+			if attempt < 3 {
+				token = ""
+				continue
+			}
+			break
+		}
+		return body, nil
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("getAccessToken failed")
+	}
+	return "", lastErr
 }
 
 // reqGetQrcode 扫码登录二维码
 // token: X-Oauth-Access-Token from /loginapi/getAccessToken
 func (s *Service) reqGetQrcode(token string) (qr *QrCodeResp, err error) {
-	_, err = s.client.R().
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("login token is empty")
+	}
+
+	result := new(QrCodeResp)
+	resp, err := s.client.R().
 		SetHeaderVerbatim("X-Oauth-Access-Token", token).
-		SetResult(&qr).
+		SetResult(result).
 		Get("/oauth/api/embedded/qrcode")
 	if err != nil {
 		fmt.Printf("%#v\n", err.Error())
 		return
 	}
-	return
+	if resp.StatusCode() >= http.StatusBadRequest {
+		return nil, fmt.Errorf("getQrcode failed(status=%d): %s", resp.StatusCode(), compactHTTPBody(resp.String()))
+	}
+	if result.ErrCode != 0 {
+		if result.ErrMsg != "" {
+			return nil, errors.New(result.ErrMsg)
+		}
+		return nil, fmt.Errorf("getQrcode failed(errCode=%d)", result.ErrCode)
+	}
+	if strings.TrimSpace(result.Data.QrCode) == "" || strings.TrimSpace(result.Data.QrCodeString) == "" {
+		return nil, errors.New("qrcode payload is empty")
+	}
+	return result, nil
 }
 
 // reqCheckLogin 轮询扫码登录结果
 // token: X-Oauth-Access-Token from /loginapi/getAccessToken
 // qrCode: qrCodeString from /oauth/api/embedded/qrcode
 func (s *Service) reqCheckLogin(token, qrCode string) (check *CheckLoginResp, cookie string, err error) {
+	token = strings.TrimSpace(token)
+	qrCode = strings.TrimSpace(qrCode)
+	if token == "" {
+		return nil, "", errors.New("login token is empty")
+	}
+	if qrCode == "" {
+		return nil, "", errors.New("qrcode string is empty")
+	}
+
+	result := new(CheckLoginResp)
 	resp, err := s.client.R().
 		SetHeaderVerbatim("X-Oauth-Access-Token", token).
 		SetBody(map[string]interface{}{
@@ -49,15 +135,54 @@ func (s *Service) reqCheckLogin(token, qrCode string) (check *CheckLoginResp, co
 			"qrCode":    qrCode,
 			"scene":     "login",
 		}).
-		SetResult(&check).
+		SetResult(result).
 		Post("/oauth/api/embedded/qrcode/check_login")
 	if err != nil {
 		fmt.Printf("%#v\n", err.Error())
 		return
 	}
+	if resp.StatusCode() >= http.StatusBadRequest {
+		return nil, "", fmt.Errorf("checkLogin failed(status=%d): %s", resp.StatusCode(), compactHTTPBody(resp.String()))
+	}
+	if result.ErrCode != 0 {
+		if result.ErrMsg != "" {
+			return nil, "", errors.New(result.ErrMsg)
+		}
+		return nil, "", fmt.Errorf("checkLogin failed(errCode=%d)", result.ErrCode)
+	}
 	cookies := resp.Header().Values("Set-Cookie")
 	cookie = strings.Join(cookies, "; ")
-	return
+	return result, cookie, nil
+}
+
+func isCsrfIssueText(msg string) bool {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	return strings.Contains(lower, "invalid csrf token") ||
+		strings.Contains(lower, "missing csrf token") ||
+		strings.Contains(lower, "csrftoken") ||
+		strings.Contains(lower, "csrf token")
+}
+
+func shouldRetryLoginTokenErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(lower, "eof") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "broken pipe") ||
+		strings.Contains(lower, "stream error")
+}
+
+func compactHTTPBody(body string) string {
+	text := strings.TrimSpace(body)
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.ReplaceAll(text, "\r", " ")
+	if len(text) > 180 {
+		return text[:180] + "..."
+	}
+	return text
 }
 
 // reqToken 请求token
@@ -435,6 +560,29 @@ func (s *Service) reqTopicNotesTimeline(maxID string) (io.ReadCloser, error) {
 	return handleHTTPResponse(resp, err)
 }
 
+// reqTopicCreateNote 发布知识城邦笔记
+// 官方 Web 对应: /api/pc/ledgers/v1/note/post
+func (s *Service) reqTopicCreateNote(noteContent, topicIDHazy string) (io.ReadCloser, error) {
+	data := map[string]interface{}{
+		"extra":        map[string]interface{}{},
+		"folder_ids":   []string{},
+		"images":       []string{},
+		"note_content": noteContent,
+		"note_type":    8,
+		"source_type":  0,
+		"state":        5,
+		"tags":         []string{},
+	}
+	if topicIDHazy != "" {
+		data["notes_topic_id_hazy"] = topicIDHazy
+	}
+
+	resp, err := s.client.R().
+		SetBody(data).
+		Post("/api/pc/ledgers/v1/note/post")
+	return handleHTTPResponse(resp, err)
+}
+
 func (s *Service) reqLiveTabList() (io.ReadCloser, error) {
 	resp, err := s.client.R().
 		Post("/api/pc/ddlive/v2/pc/home/live/tablist")
@@ -465,6 +613,16 @@ func (s *Service) reqLiveBase(aliasID string) (io.ReadCloser, error) {
 		SetBody(map[string]interface{}{
 			"alias_id": aliasID,
 		}).Post("/pc/ddlive/v2/pc/live/base")
+	return handleHTTPResponse(resp, err)
+}
+
+func (s *Service) reqLiveRoomDetail(aliasID, liveUserUnionID, token string) (io.ReadCloser, error) {
+	resp, err := s.client.R().
+		SetBody(map[string]interface{}{
+			"alias_id":           aliasID,
+			"live_user_union_id": liveUserUnionID,
+			"token":              token,
+		}).Post("/api/pc/ddlive/v2/pc/live/roomDetail")
 	return handleHTTPResponse(resp, err)
 }
 
@@ -626,11 +784,43 @@ func (s *Service) reqChannelTopicDetail(productID int) (io.ReadCloser, error) {
 
 // reqEbookNoteList 请求电子书笔记列表
 // bookEnid: 电子书的加密ID
-func (s *Service) reqEbookNoteList(bookEnid string) (io.ReadCloser, error) {
+func (s *Service) reqEbookNoteList(bookEnid string, bookID int, isOldVersion int) (io.ReadCloser, error) {
+	data := map[string]interface{}{
+		"book_enid": bookEnid,
+	}
+	if bookID > 0 {
+		data["book_id"] = bookID
+	}
+	data["is_old_version"] = isOldVersion
+
+	resp, err := s.client.R().
+		SetBody(data).
+		Post("/api/pc/ledgers/ebook/list")
+	return handleHTTPResponse(resp, err)
+}
+
+// reqEbookNoteCreate 创建电子书笔记/划线
+func (s *Service) reqEbookNoteCreate(param map[string]interface{}) (io.ReadCloser, error) {
+	resp, err := s.client.R().
+		SetBody(param).
+		Post("/api/pc/ledgers/ebook/create")
+	return handleHTTPResponse(resp, err)
+}
+
+// reqEbookNoteUpdate 更新电子书笔记/划线
+func (s *Service) reqEbookNoteUpdate(param map[string]interface{}) (io.ReadCloser, error) {
+	resp, err := s.client.R().
+		SetBody(param).
+		Post("/api/pc/ledgers/ebook/update")
+	return handleHTTPResponse(resp, err)
+}
+
+// reqNotesDestroy 删除笔记（通用）
+func (s *Service) reqNotesDestroy(noteIDHazy string) (io.ReadCloser, error) {
 	resp, err := s.client.R().
 		SetBody(map[string]interface{}{
-			"book_enid": bookEnid,
+			"note_id_hazy": noteIDHazy,
 		}).
-		Post("/api/pc/ledgers/ebook/list")
+		Post("/api/pc/ledgers/notes/destory")
 	return handleHTTPResponse(resp, err)
 }

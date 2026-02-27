@@ -25,5 +25,9 @@ coverage.txt
 .vscode
 .idea
 .cache
+.playwright-cli
 .DS_Store
 .claude
+release
+*.bak
+tmp_*

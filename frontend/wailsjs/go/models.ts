@@ -1,5 +1,21 @@
 export namespace backend {
 	
+	export class DirConfig {
+	    outputDir: string;
+	    ffmpegDir: string;
+	    wkToPdfDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DirConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outputDir = source["outputDir"];
+	        this.ffmpegDir = source["ffmpegDir"];
+	        this.wkToPdfDir = source["wkToPdfDir"];
+	    }
+	}
 	export class LoginResult {
 	    status: number;
 	    cookie: string;
@@ -2265,6 +2281,9 @@ export namespace services {
 	    book_id: number;
 	    book_is_old_version: number;
 	    book_name: string;
+	    book_offset: number;
+	    book_section: string;
+	    book_start_pos: number;
 	    book_shelf_status: number;
 	    column_title: string;
 	    images: any[];
@@ -2283,6 +2302,7 @@ export namespace services {
 	    sub_title: string;
 	    title: string;
 	    tname: string;
+	    location: string;
 	    is_vip_book?: number;
 	    log_type?: string;
 	    column_intro: string;
@@ -2303,6 +2323,9 @@ export namespace services {
 	        this.book_id = source["book_id"];
 	        this.book_is_old_version = source["book_is_old_version"];
 	        this.book_name = source["book_name"];
+	        this.book_offset = source["book_offset"];
+	        this.book_section = source["book_section"];
+	        this.book_start_pos = source["book_start_pos"];
 	        this.book_shelf_status = source["book_shelf_status"];
 	        this.column_title = source["column_title"];
 	        this.images = source["images"];
@@ -2321,6 +2344,7 @@ export namespace services {
 	        this.sub_title = source["sub_title"];
 	        this.title = source["title"];
 	        this.tname = source["tname"];
+	        this.location = source["location"];
 	        this.is_vip_book = source["is_vip_book"];
 	        this.log_type = source["log_type"];
 	        this.column_intro = source["column_intro"];
@@ -2921,8 +2945,40 @@ export namespace services {
 		    return a;
 		}
 	}
+	export class CreateNoteResp {
+	    note_id_hazy: string;
+	    trace: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateNoteResp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.note_id_hazy = source["note_id_hazy"];
+	        this.trace = source["trace"];
+	    }
+	}
 	
 	
+	export class EbookBlock {
+	    chapterId: string;
+	    sectionID: string;
+	    endOffset: number;
+	    startOffset: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookBlock(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.chapterId = source["chapterId"];
+	        this.sectionID = source["sectionID"];
+	        this.endOffset = source["endOffset"];
+	        this.startOffset = source["startOffset"];
+	    }
+	}
 	export class SelfInfo {
 	    score: number;
 	    audit_state: number;
@@ -3132,6 +3188,193 @@ export namespace services {
 		}
 	}
 	
+	export class EbookInfo {
+	    // Go type: struct { EbookBlock [][]services
+	    bookInfo: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bookInfo = this.convertValues(source["bookInfo"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EbookInfoPage {
+	    cid: string;
+	    end_offset: number;
+	    page_num: number;
+	    start_offset: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookInfoPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cid = source["cid"];
+	        this.end_offset = source["end_offset"];
+	        this.page_num = source["page_num"];
+	        this.start_offset = source["start_offset"];
+	    }
+	}
+	export class EbookNoteItem {
+	    note_id: number;
+	    note_id_hazy: string;
+	    note: string;
+	    note_line: string;
+	    note_type: number;
+	    create_time: number;
+	    update_time: number;
+	    state: number;
+	    ref_id: string;
+	    extra: NotesExtra;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookNoteItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.note_id = source["note_id"];
+	        this.note_id_hazy = source["note_id_hazy"];
+	        this.note = source["note"];
+	        this.note_line = source["note_line"];
+	        this.note_type = source["note_type"];
+	        this.create_time = source["create_time"];
+	        this.update_time = source["update_time"];
+	        this.state = source["state"];
+	        this.ref_id = source["ref_id"];
+	        this.extra = this.convertValues(source["extra"], NotesExtra);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EbookNoteListResp {
+	    list: EbookNoteItem[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookNoteListResp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.list = this.convertValues(source["list"], EbookNoteItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EbookNoteSaveResp {
+	    deleted_ids: string[];
+	    note_id: number;
+	    note_id_hazy: string;
+	    note: string;
+	    note_line: string;
+	    note_type: number;
+	    update_time: number;
+	    state: number;
+	    extra: NotesExtra;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookNoteSaveResp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deleted_ids = source["deleted_ids"];
+	        this.note_id = source["note_id"];
+	        this.note_id_hazy = source["note_id_hazy"];
+	        this.note = source["note"];
+	        this.note_line = source["note_line"];
+	        this.note_type = source["note_type"];
+	        this.update_time = source["update_time"];
+	        this.state = source["state"];
+	        this.extra = this.convertValues(source["extra"], NotesExtra);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EbookOrders {
+	    chapterId: string;
+	    pathInEpub: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookOrders(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.chapterId = source["chapterId"];
+	        this.pathInEpub = source["pathInEpub"];
+	    }
+	}
 	
 	export class EbookShelfAddData {
 	    n: number;
@@ -3497,6 +3740,413 @@ export namespace services {
 	
 	
 	
+	export class LivePrivilegeProduct {
+	    id: number;
+	    product_id: number;
+	    product_sub_id: number;
+	    product_type: number;
+	    title: string;
+	    ddurl: string;
+	    live_start_time: number;
+	    live_id: number;
+	    has_privilege: boolean;
+	    alias_name: string;
+	    alias_id: string;
+	    is_privilege_live: boolean;
+	    product_group_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LivePrivilegeProduct(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.product_id = source["product_id"];
+	        this.product_sub_id = source["product_sub_id"];
+	        this.product_type = source["product_type"];
+	        this.title = source["title"];
+	        this.ddurl = source["ddurl"];
+	        this.live_start_time = source["live_start_time"];
+	        this.live_id = source["live_id"];
+	        this.has_privilege = source["has_privilege"];
+	        this.alias_name = source["alias_name"];
+	        this.alias_id = source["alias_id"];
+	        this.is_privilege_live = source["is_privilege_live"];
+	        this.product_group_id = source["product_group_id"];
+	    }
+	}
+	export class Live {
+	    status: number;
+	    online_num: number;
+	    reservation_num: number;
+	    title: string;
+	    room_id: number;
+	    intro: string;
+	    starttime: number;
+	    starttime_desc: string;
+	    duration: number;
+	    endtime: number;
+	    id: number;
+	    type: number;
+	    log_id: number;
+	    log_type: string;
+	    live_type: string;
+	    live_privilege_tips: string;
+	    home_img: string;
+	    author: string;
+	    pv_num: number;
+	    privilege_status: number;
+	    alias_id: string;
+	    appointment_status: number;
+	    playback_status: number;
+	    publish_status: number;
+	    live_duration_text: string;
+	    video_duration: string;
+	    live_privilege_type: number;
+	    logo: string;
+	    time_report: number;
+	    hide_online_number: number;
+	    live_pv: number;
+	    live_viewers: number;
+	    show_pv: number;
+	    is_privilege_live: boolean;
+	    invite_count: number;
+	    can_watch: boolean;
+	    has_buy: boolean;
+	    privilege_live_tag: string;
+	    subscribe_summary: string;
+	    dd_url: string;
+	    show_subscribe_summary: number;
+	    alert_tips: string;
+	    currenttime: number;
+	    video_cover_m3u8: string;
+	    live_cover_m3u8: string;
+	    web_pc_media_token: string;
+	    ld_flv: string;
+	    video_cover_media_id: number;
+	    last_start_timestamp: number;
+	    last_end_timestamp: number;
+	    privilege_product: LivePrivilegeProduct;
+	
+	    static createFrom(source: any = {}) {
+	        return new Live(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.online_num = source["online_num"];
+	        this.reservation_num = source["reservation_num"];
+	        this.title = source["title"];
+	        this.room_id = source["room_id"];
+	        this.intro = source["intro"];
+	        this.starttime = source["starttime"];
+	        this.starttime_desc = source["starttime_desc"];
+	        this.duration = source["duration"];
+	        this.endtime = source["endtime"];
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.log_id = source["log_id"];
+	        this.log_type = source["log_type"];
+	        this.live_type = source["live_type"];
+	        this.live_privilege_tips = source["live_privilege_tips"];
+	        this.home_img = source["home_img"];
+	        this.author = source["author"];
+	        this.pv_num = source["pv_num"];
+	        this.privilege_status = source["privilege_status"];
+	        this.alias_id = source["alias_id"];
+	        this.appointment_status = source["appointment_status"];
+	        this.playback_status = source["playback_status"];
+	        this.publish_status = source["publish_status"];
+	        this.live_duration_text = source["live_duration_text"];
+	        this.video_duration = source["video_duration"];
+	        this.live_privilege_type = source["live_privilege_type"];
+	        this.logo = source["logo"];
+	        this.time_report = source["time_report"];
+	        this.hide_online_number = source["hide_online_number"];
+	        this.live_pv = source["live_pv"];
+	        this.live_viewers = source["live_viewers"];
+	        this.show_pv = source["show_pv"];
+	        this.is_privilege_live = source["is_privilege_live"];
+	        this.invite_count = source["invite_count"];
+	        this.can_watch = source["can_watch"];
+	        this.has_buy = source["has_buy"];
+	        this.privilege_live_tag = source["privilege_live_tag"];
+	        this.subscribe_summary = source["subscribe_summary"];
+	        this.dd_url = source["dd_url"];
+	        this.show_subscribe_summary = source["show_subscribe_summary"];
+	        this.alert_tips = source["alert_tips"];
+	        this.currenttime = source["currenttime"];
+	        this.video_cover_m3u8 = source["video_cover_m3u8"];
+	        this.live_cover_m3u8 = source["live_cover_m3u8"];
+	        this.web_pc_media_token = source["web_pc_media_token"];
+	        this.ld_flv = source["ld_flv"];
+	        this.video_cover_media_id = source["video_cover_media_id"];
+	        this.last_start_timestamp = source["last_start_timestamp"];
+	        this.last_end_timestamp = source["last_end_timestamp"];
+	        this.privilege_product = this.convertValues(source["privilege_product"], LivePrivilegeProduct);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LiveActivityInfo {
+	    live_activity_ddurl: string;
+	    live_activity_type: number;
+	    live_playback_disabled: number;
+	    live_activity_id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveActivityInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.live_activity_ddurl = source["live_activity_ddurl"];
+	        this.live_activity_type = source["live_activity_type"];
+	        this.live_playback_disabled = source["live_playback_disabled"];
+	        this.live_activity_id = source["live_activity_id"];
+	    }
+	}
+	export class LiveArticleInfo {
+	    article_id: number;
+	    article_detail_ddurl: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveArticleInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.article_id = source["article_id"];
+	        this.article_detail_ddurl = source["article_detail_ddurl"];
+	    }
+	}
+	export class LiveBooking {
+	    bookStatus: number;
+	    totalNum: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveBooking(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bookStatus = source["bookStatus"];
+	        this.totalNum = source["totalNum"];
+	    }
+	}
+	export class LiveOutline {
+	    title: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveOutline(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.content = source["content"];
+	    }
+	}
+	export class LiveLecture {
+	    teacher_uid: number;
+	    teacher_name: string;
+	    teacher_intro: string;
+	    avatar: string;
+	    profile_url: string;
+	    is_bigv: number;
+	    fllow_status: number;
+	    follow_count: number;
+	    fans_count: number;
+	    teacher_uid_alias: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveLecture(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.teacher_uid = source["teacher_uid"];
+	        this.teacher_name = source["teacher_name"];
+	        this.teacher_intro = source["teacher_intro"];
+	        this.avatar = source["avatar"];
+	        this.profile_url = source["profile_url"];
+	        this.is_bigv = source["is_bigv"];
+	        this.fllow_status = source["fllow_status"];
+	        this.follow_count = source["follow_count"];
+	        this.fans_count = source["fans_count"];
+	        this.teacher_uid_alias = source["teacher_uid_alias"];
+	    }
+	}
+	export class LiveBase {
+	    live_lecture_list: LiveLecture[];
+	    live_outline: LiveOutline;
+	    room_detail_ddurl: string;
+	    status: number;
+	    share_image_square: string;
+	    logo: string;
+	    poster_image: string;
+	    intro: string;
+	    title: string;
+	    starttimestamp: number;
+	    share_title: string;
+	    share_summary: string;
+	    id: number;
+	    share_url: string;
+	    booking: LiveBooking;
+	    live_series_ids: string;
+	    playback_status: number;
+	    publish_status: number;
+	    live_serires_info: any;
+	    live_type: string;
+	    ptype: number;
+	    last_start_time: string;
+	    last_end_time: string;
+	    max_num: number;
+	    uv: number;
+	    live_pv: number;
+	    live_viewers: number;
+	    show_pv: number;
+	    invite_count: number;
+	    is_privilege_live: boolean;
+	    author_text: string;
+	    live_article_info: LiveArticleInfo;
+	    live_activity_info: LiveActivityInfo;
+	    is_activity_live: boolean;
+	    youzan_vip_product_url: string;
+	    live_uv: number;
+	    live_medal_module: any;
+	    live_privilege_type: number;
+	    live_record_num: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveBase(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.live_lecture_list = this.convertValues(source["live_lecture_list"], LiveLecture);
+	        this.live_outline = this.convertValues(source["live_outline"], LiveOutline);
+	        this.room_detail_ddurl = source["room_detail_ddurl"];
+	        this.status = source["status"];
+	        this.share_image_square = source["share_image_square"];
+	        this.logo = source["logo"];
+	        this.poster_image = source["poster_image"];
+	        this.intro = source["intro"];
+	        this.title = source["title"];
+	        this.starttimestamp = source["starttimestamp"];
+	        this.share_title = source["share_title"];
+	        this.share_summary = source["share_summary"];
+	        this.id = source["id"];
+	        this.share_url = source["share_url"];
+	        this.booking = this.convertValues(source["booking"], LiveBooking);
+	        this.live_series_ids = source["live_series_ids"];
+	        this.playback_status = source["playback_status"];
+	        this.publish_status = source["publish_status"];
+	        this.live_serires_info = source["live_serires_info"];
+	        this.live_type = source["live_type"];
+	        this.ptype = source["ptype"];
+	        this.last_start_time = source["last_start_time"];
+	        this.last_end_time = source["last_end_time"];
+	        this.max_num = source["max_num"];
+	        this.uv = source["uv"];
+	        this.live_pv = source["live_pv"];
+	        this.live_viewers = source["live_viewers"];
+	        this.show_pv = source["show_pv"];
+	        this.invite_count = source["invite_count"];
+	        this.is_privilege_live = source["is_privilege_live"];
+	        this.author_text = source["author_text"];
+	        this.live_article_info = this.convertValues(source["live_article_info"], LiveArticleInfo);
+	        this.live_activity_info = this.convertValues(source["live_activity_info"], LiveActivityInfo);
+	        this.is_activity_live = source["is_activity_live"];
+	        this.youzan_vip_product_url = source["youzan_vip_product_url"];
+	        this.live_uv = source["live_uv"];
+	        this.live_medal_module = source["live_medal_module"];
+	        this.live_privilege_type = source["live_privilege_type"];
+	        this.live_record_num = source["live_record_num"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class LiveCheck {
+	    status: number;
+	    token: string;
+	    live_privilege_tips: string;
+	    live_type: string;
+	    logo: string;
+	    expired_seconds: number;
+	    product_type: number;
+	    product_id: number;
+	    ddurl: string;
+	    need_buy: boolean;
+	    button_text: string;
+	    product_subid: number;
+	    live_product_buy_tips: string;
+	    invite_count: number;
+	    is_privilege_live: boolean;
+	    error_msg: string;
+	    has_buy: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.token = source["token"];
+	        this.live_privilege_tips = source["live_privilege_tips"];
+	        this.live_type = source["live_type"];
+	        this.logo = source["logo"];
+	        this.expired_seconds = source["expired_seconds"];
+	        this.product_type = source["product_type"];
+	        this.product_id = source["product_id"];
+	        this.ddurl = source["ddurl"];
+	        this.need_buy = source["need_buy"];
+	        this.button_text = source["button_text"];
+	        this.product_subid = source["product_subid"];
+	        this.live_product_buy_tips = source["live_product_buy_tips"];
+	        this.invite_count = source["invite_count"];
+	        this.is_privilege_live = source["is_privilege_live"];
+	        this.error_msg = source["error_msg"];
+	        this.has_buy = source["has_buy"];
+	    }
+	}
 	export class PrivilegeProduct {
 	    alias_id: string;
 	    alias_name: string;
@@ -3658,6 +4308,178 @@ export namespace services {
 		}
 	}
 	
+	
+	export class LiveList {
+	    is_more: number;
+	    list: Live[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.is_more = source["is_more"];
+	        this.list = this.convertValues(source["list"], Live);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class LiveRoomPlaybackInfo {
+	    audio: string;
+	    ddmedia_id: string;
+	    duration: number;
+	    duration_text: string;
+	    hd: string;
+	    ld: string;
+	    playback_status: number;
+	    screen_projection_url: string;
+	    token: string;
+	    token_version: number;
+	    ud: string;
+	    web_pc_media_token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveRoomPlaybackInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.audio = source["audio"];
+	        this.ddmedia_id = source["ddmedia_id"];
+	        this.duration = source["duration"];
+	        this.duration_text = source["duration_text"];
+	        this.hd = source["hd"];
+	        this.ld = source["ld"];
+	        this.playback_status = source["playback_status"];
+	        this.screen_projection_url = source["screen_projection_url"];
+	        this.token = source["token"];
+	        this.token_version = source["token_version"];
+	        this.ud = source["ud"];
+	        this.web_pc_media_token = source["web_pc_media_token"];
+	    }
+	}
+	export class LiveRoomDetail {
+	    alias_id: string;
+	    title: string;
+	    intro: string;
+	    dd_url: string;
+	    currenttime: number;
+	    ld: string;
+	    hd: string;
+	    ld_m3u8: string;
+	    hd_m3u8: string;
+	    L1flv: string;
+	    L2flv: string;
+	    L3flv: string;
+	    minibar_stream_url: string;
+	    playback_info: LiveRoomPlaybackInfo;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveRoomDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.alias_id = source["alias_id"];
+	        this.title = source["title"];
+	        this.intro = source["intro"];
+	        this.dd_url = source["dd_url"];
+	        this.currenttime = source["currenttime"];
+	        this.ld = source["ld"];
+	        this.hd = source["hd"];
+	        this.ld_m3u8 = source["ld_m3u8"];
+	        this.hd_m3u8 = source["hd_m3u8"];
+	        this.L1flv = source["L1flv"];
+	        this.L2flv = source["L2flv"];
+	        this.L3flv = source["L3flv"];
+	        this.minibar_stream_url = source["minibar_stream_url"];
+	        this.playback_info = this.convertValues(source["playback_info"], LiveRoomPlaybackInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class LiveTab {
+	    tab_name: string;
+	    tab_count: number;
+	    live_type: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveTab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tab_name = source["tab_name"];
+	        this.tab_count = source["tab_count"];
+	        this.live_type = source["live_type"];
+	    }
+	}
+	export class LiveTabList {
+	    list: LiveTab[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveTabList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.list = this.convertValues(source["list"], LiveTab);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class VolcFormat {
 	    type: string;
@@ -3955,6 +4777,20 @@ export namespace services {
 	        this.repost_count = source["repost_count"];
 	        this.comment_count = source["comment_count"];
 	        this.like_count = source["like_count"];
+	    }
+	}
+	export class NoteDestroyResp {
+	    note_id: number;
+	    note_id_hazy: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NoteDestroyResp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.note_id = source["note_id"];
+	        this.note_id_hazy = source["note_id_hazy"];
 	    }
 	}
 	export class NoteFPart {
@@ -5525,6 +6361,31 @@ export namespace services {
 	
 	
 	
+
+}
+
+export namespace utils {
+	
+	export class EbookToc {
+	    href: string;
+	    level: number;
+	    playOrder: number;
+	    offset: number;
+	    text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EbookToc(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.href = source["href"];
+	        this.level = source["level"];
+	        this.playOrder = source["playOrder"];
+	        this.offset = source["offset"];
+	        this.text = source["text"];
+	    }
+	}
 
 }
 

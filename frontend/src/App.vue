@@ -8,8 +8,8 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import { themeStore } from './stores/theme'
 import { settingStore } from './stores/setting'
 import { playerStore } from './stores/player'
-import { AudioDetailAlias } from '../wailsjs/go/backend/App'
 import { setFontFamily } from './utils/utils'
+import { invokeBackend } from './utils/backend'
 
 // 初始化主题
 const store = themeStore()
@@ -41,7 +41,7 @@ const resolveOdobSrc = async (aliasId: string) => {
   if (cached) return cached
   const pending = odobPending.get(key)
   if (pending) return pending
-  const p = AudioDetailAlias(key)
+  const p = invokeBackend<any>('AudioDetailAlias', key)
     .then((detail) => {
       const src = String(detail?.mp3_play_url ?? '').trim()
       const poster = String(detail?.icon ?? '').trim() || undefined

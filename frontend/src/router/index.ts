@@ -104,6 +104,14 @@ const router = createRouter({
                     },
                 },
                 {
+                    path: 'ebook/read/:id',
+                    name: "ebookReader",
+                    component: () => import("../views/EbookReader.vue"),
+                    meta: {
+                        name: "阅读器", hideMenu:true, requiresAuth:true
+                    },
+                },
+                {
                     path: 'ebook/comment',
                     name: "ebookComment",
                     component: () => import("../views/EbookComment.vue"),
@@ -126,7 +134,15 @@ const router = createRouter({
                     meta: {
                         name: "知识城邦", requiresAuth:false
                     },
-                }
+                },
+                {
+                    path: 'publish',
+                    name: "knowledgePublish",
+                    component: () => import("../views/KnowledgePublish.vue"),
+                    meta: {
+                        name: "发布笔记", hideMenu:true, requiresAuth:true
+                    },
+                },
             ]
         },
         {
@@ -141,6 +157,21 @@ const router = createRouter({
                     component: () => import("../views/Compass.vue"),
                     meta: {
                         name: "锦囊", requiresAuth:true
+                    },
+                }
+            ]
+        },
+        {
+            path: "/",
+            meta: { name: "直播", icon:"VideoCamera", menuType: 2 },
+            redirect: "/live",
+            children: [
+                {
+                    path: 'live',
+                    name: "live",
+                    component: () => import("../views/Live.vue"),
+                    meta: {
+                        name: "直播", requiresAuth:false
                     },
                 }
             ]

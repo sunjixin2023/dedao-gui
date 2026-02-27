@@ -16,14 +16,17 @@ export const ROUTES = {
     COURSE_DETAIL: (id: string | number) => `/bought/course/${id}`,
     ARTICLE: (id: string) => `/bought/article/${id}`,
     VIDEO: '/bought/video',
+    LIVE: '/live',
     ODOB: '/bought/odob',
     ODOB_DETAIL: (id: string) => `/bought/odob/${id}`,
     EBOOK: '/bought/ebook',
+    EBOOK_READER: (id: string) => `/bought/ebook/read/${id}`,
     EBOOK_COMMENT: '/bought/ebook/comment',
   },
 
   // 知识城邦
   KNOWLEDGE: '/knowledge/home',
+  KNOWLEDGE_PUBLISH: '/knowledge/publish',
 
   // 锦囊
   COMPASS: '/compass',
@@ -54,13 +57,16 @@ export const ROUTE_NAMES = {
   ARTICLE_LIST: 'articleList',
   ARTICLE: 'article',
   VIDEO: 'video',
+  LIVE: 'live',
   ODOB: 'odob',
   ODOB_ARTICLE: 'odobArticle',
   EBOOK: 'ebook',
+  EBOOK_READER: 'ebookReader',
   EBOOK_COMMENT: 'ebookComment',
 
   // 知识城邦
   KNOWLEDGE: 'knowledgeHome',
+  KNOWLEDGE_PUBLISH: 'knowledgePublish',
 
   // 锦囊
   COMPASS: 'compass',

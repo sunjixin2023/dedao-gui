@@ -166,7 +166,7 @@ fi
 
 mkdir -p "${ROOT_DIR}/release"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BASENAME="dedao-gui-${TARGET//\//-}-${STAMP}"
+BASENAME="dedao-${TARGET//\//-}-${STAMP}"
 
 if [[ "${TARGET}" == windows/* ]]; then
   ARCHIVE_FILE="${ROOT_DIR}/release/${BASENAME}.zip"

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/JoshVarga/svgparser"
 	"github.com/yann0917/dedao-gui/backend/request"
@@ -63,8 +64,8 @@ func (a SvgContents) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a SvgContents) Less(i, j int) bool { return a[i].OrderIndex < a[j].OrderIndex } // 从小到大排序
 
 const (
-	footNoteImgW     = 20 // 脚注图片≈11x11px & 特殊字图片≈19x19
-	footNoteImgH     = 20 // 行内图片高度=20
+	footNoteImgW     = 40 // 脚注图片≈11x11px & 特殊字图片≈19x19，适当放宽到40避免遗漏
+	footNoteImgH     = 40 // 行内图片高度
 	svgShapePath     = "path"
 	svgShapePolygon  = "polygon"
 	svgShapePolyline = "polyline"
@@ -82,6 +83,7 @@ const (
 
 var fnA, fnB = "", ""
 var tocLevel map[string]int
+var tocMu sync.Mutex
 
 func Svg2Html(outputDir, title string, svgContents []*SvgContent, toc []EbookToc) (err error) {
 	tocLevel = make(map[string]int, len(toc))
@@ -818,5 +820,129 @@ outer:
 			}
 		}
 	}
+	return
+} // ChapterSvgToHtml converts SVG pages into a single continuous HTML string for web reading.
+// This is a safe, standalone implementation that does not rely on global mutable state.
+func ChapterSvgToHtml(chapterID string, svgList []string) (result string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("SVG parsing recovered from panic: %v", r)
+		}
+	}()
+
+	// Ensure package-level global state used by GenLineContentByElement is safe
+	tocMu.Lock()
+	if tocLevel == nil {
+		tocLevel = make(map[string]int)
+	}
+	tocMu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString(`<div id="` + chapterID + `">`)
+
+	for _, content := range svgList {
+		if content == "" {
+			continue
+		}
+		reader := strings.NewReader(content)
+		valid := NewValidUTF8Reader(reader)
+		validReader := []byte(content)
+		_, _ = valid.Read(validReader)
+
+		element, err1 := svgparser.Parse(bytes.NewReader(validReader), false)
+		if err1 != nil {
+			// Skip unparseable pages rather than failing entirely
+			continue
+		}
+
+		lineContent := GenLineContentByElement(chapterID, element)
+		if len(lineContent) == 0 {
+			continue
+		}
+
+		keys := make([]float64, 0, len(lineContent))
+		for k := range lineContent {
+			keys = append(keys, k)
+		}
+		sort.Float64s(keys)
+
+		// Cluster close y coordinates to merge footnotes with text
+		mergedLines := make(map[float64][]HtmlEle)
+		var currentY float64 = -9999
+		for _, y := range keys {
+			if y-currentY < 15 {
+				mergedLines[currentY] = append(mergedLines[currentY], lineContent[y]...)
+			} else {
+				currentY = y
+				mergedLines[currentY] = lineContent[y]
+			}
+		}
+
+		mergedKeys := make([]float64, 0, len(mergedLines))
+		for k := range mergedLines {
+			mergedKeys = append(mergedKeys, k)
+		}
+		sort.Float64s(mergedKeys)
+
+		for _, v := range mergedKeys {
+			items := mergedLines[v]
+			if len(items) == 0 {
+				continue
+			}
+
+			// Sort by X coordinate to ensure correct left-to-right inline order
+			sort.SliceStable(items, func(i, j int) bool {
+				x1, _ := strconv.ParseFloat(items[i].X, 64)
+				x2, _ := strconv.ParseFloat(items[j].X, 64)
+				return x1 < x2
+			})
+
+			var lineBuf strings.Builder
+			for _, item := range items {
+				switch item.Name {
+				case "text":
+					c := html.EscapeString(item.Content)
+					if item.IsBold {
+						c = "<b>" + c + "</b>"
+					}
+					if item.IsItalic {
+						c = "<i>" + c + "</i>"
+					}
+					if item.IsFn {
+						c = "<sup>" + c + "</sup>"
+					}
+					if item.IsSub {
+						c = "<sub>" + c + "</sub>"
+					}
+					if item.Style != "" {
+						c = `<span style="` + item.Style + `">` + c + `</span>`
+					}
+					lineBuf.WriteString(c)
+				case "image":
+					w, _ := strconv.ParseFloat(item.Width, 64)
+					h, _ := strconv.ParseFloat(item.Height, 64)
+					if w > 900 {
+						h = 900 * h / w
+						w = 900
+					}
+					if w > 0 && item.Href != "" {
+						wStr := strconv.FormatFloat(w, 'f', 0, 64)
+						if w < float64(footNoteImgW) && item.Class != "" {
+							lineBuf.WriteString(`<sup class="footnote-img" style="margin:0 2px;"><img width="` + wStr + `" src="` + item.Href + `" alt="` + item.Alt + `" style="display:inline-block; vertical-align:middle; border:none;"/></sup>`)
+						} else {
+							sb.WriteString(`<p style="text-align:center; margin: 0.5em 0;"><img width="` + wStr + `" src="` + item.Href + `" alt="` + item.Alt + `" style="max-width:100%"/></p>`)
+						}
+					}
+				}
+			}
+			lineStr := html.UnescapeString(lineBuf.String())
+			if lineStr != "" {
+				sb.WriteString("<p>" + lineStr + "</p>")
+			}
+		}
+	}
+
+	sb.WriteString("</div>")
+	result = sb.String()
 	return
 }

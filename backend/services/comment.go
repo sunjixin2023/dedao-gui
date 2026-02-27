@@ -151,6 +151,9 @@ type NotesExtra struct {
 	BookId           int           `json:"book_id"`
 	BookIsOldVersion int           `json:"book_is_old_version"`
 	BookName         string        `json:"book_name"`
+	BookOffset       int           `json:"book_offset"`
+	BookSection      string        `json:"book_section"`
+	BookStartPos     int           `json:"book_start_pos"`
 	BookShelfStatus  int           `json:"book_shelf_status"`
 	ColumnTitle      string        `json:"column_title"`
 	Images           []interface{} `json:"images"`
@@ -169,6 +172,7 @@ type NotesExtra struct {
 	SubTitle         string        `json:"sub_title"`
 	Title            string        `json:"title"`
 	Tname            string        `json:"tname"`
+	Location         string        `json:"location"`
 	IsVipBook        int           `json:"is_vip_book,omitempty"`
 	LogType          string        `json:"log_type,omitempty"`
 

@@ -1,5 +1,8 @@
 <template>
     <div class="knowledge-container">
+        <div class="knowledge-actions">
+            <el-button type="primary" @click="goPublish">发布笔记</el-button>
+        </div>
         <div class="knowledge-layout">
             <div class="content-area">
                 <notes-item :topic-detail="topicDetail" :key="timer()"/>
@@ -16,12 +19,19 @@ import NotesItem from "../components/NotesItem.vue";
 import TopicItem from "../components/TopicItem.vue";
 import {reactive} from "vue";
 import {services} from "../../wailsjs/go/models";
+import { useAppRouter } from "../composables/useRouter";
+import { ROUTE_NAMES } from "../router/routes";
 
 const topicDetail = reactive(new services.TopicIntro)
+const { pushByName } = useAppRouter()
 
 const getTopicDetail = (row:any)=> {
     Object.assign(topicDetail, row)
     timer()
+}
+
+const goPublish = () => {
+    pushByName(ROUTE_NAMES.KNOWLEDGE_PUBLISH)
 }
 
 const timer = ()=> {
@@ -36,6 +46,12 @@ const timer = ()=> {
     max-width: 1600px;
     margin: 0 auto;
     box-sizing: border-box;
+}
+
+.knowledge-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 14px;
 }
 
 .knowledge-layout {

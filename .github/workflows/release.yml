@@ -17,17 +17,17 @@ jobs:
           - name: macos-universal
             os: macos-14
             platform: darwin/universal
-            artifact: dedao-gui-macos-universal
+            artifact: dedao-macos-universal
             archive: tar
           - name: windows-amd64
             os: windows-latest
             platform: windows/amd64
-            artifact: dedao-gui-windows-amd64
+            artifact: dedao-windows-amd64
             archive: zip
           - name: linux-amd64
             os: ubuntu-24.04
             platform: linux/amd64
-            artifact: dedao-gui-linux-amd64
+            artifact: dedao-linux-amd64
             archive: tar
 
     steps:

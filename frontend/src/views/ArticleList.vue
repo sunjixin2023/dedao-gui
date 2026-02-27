@@ -23,6 +23,14 @@
                 <el-icon><Sort /></el-icon>
                 {{ isReverse ? '正序' : '倒序' }}
             </el-button>
+            <div class="view-toggle">
+                <button class="toggle-btn" :class="viewMode === 'card' ? 'active' : ''" @click="setViewMode('card')">
+                    卡片
+                </button>
+                <button class="toggle-btn" :class="viewMode === 'list' ? 'active' : ''" @click="setViewMode('list')">
+                    列表
+                </button>
+            </div>
         </div>
     </div>
     <div
@@ -32,7 +40,7 @@
         infinite-scroll-distance="10"
         @scroll="onScroll"
     >
-        <ul class="article-list">
+        <ul class="article-list" :class="viewMode === 'list' ? 'list-mode' : ''">
             <li v-for="item in tableData.article_list" :key="item.id" class="article-card-wrapper">
                 <div class="article-card" @click="handlePlay(item)">
                     <div class="card-cover">
@@ -94,6 +102,22 @@
                             </span>
                         </div>
                     </div>
+
+                    <div class="list-actions" @click.stop>
+                        <el-tooltip :content="item.video_status == 1 ? '观看' : '播放'" :show-after="500">
+                            <el-button
+                                v-if="item.audio_alias_ids?.length || item.video_status"
+                                circle size="small" type="primary" :icon="VideoPlay"
+                                @click.stop="handlePlay(item)"
+                            />
+                        </el-tooltip>
+                        <el-tooltip content="文稿" :show-after="500">
+                            <el-button circle size="small" type="success" :icon="Memo" @click.stop="gotoArticleDetail(item)" />
+                        </el-tooltip>
+                        <el-tooltip content="下载" :show-after="500" v-if="canDownload(item)">
+                            <el-button circle size="small" type="warning" :icon="Download" @click.stop="openDownloadDialog(item)" />
+                        </el-tooltip>
+                    </div>
                 </div>
             </li>
         </ul>
@@ -139,8 +163,10 @@ import { timestampToDate } from '../utils/utils'
 import {useAppRouter} from '../composables/useRouter'
 import {ROUTE_NAMES} from '../router/routes'
 import { playerStore, type PlayerTrack } from '../stores/player'
+import { Local } from '../utils/storage'
 
 const pStore = playerStore()
+const viewMode = ref<'card' | 'list'>(Local.get('article_list_view_mode') === 'list' ? 'list' : 'card')
 
 const loading = ref(false) // 懒加载 loading 状态
 const finished = ref(false) // 懒加载是否全部加载完
@@ -192,6 +218,11 @@ const hasScrolled = ref(false)
 
 const onScroll = () => {
     if (!hasScrolled.value) hasScrolled.value = true
+}
+
+const setViewMode = (mode: 'card' | 'list') => {
+    viewMode.value = mode
+    Local.set('article_list_view_mode', mode)
 }
 
 const toggleSort = () => {
@@ -407,6 +438,8 @@ const gotoArticleVideo = (row: any) => {
 
 <style scoped>
 .breadcrumb-container {
+    --list-cover-size: 52px;
+    --list-row-min-height: 78px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -416,20 +449,56 @@ const gotoArticleVideo = (row: any) => {
 
 .breadcrumb-actions {
     display: flex;
-    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .action-btn {
     display: flex;
     align-items: center;
     gap: 4px;
+    height: 40px;
+    padding: 0 4px;
     font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
     color: var(--text-secondary);
     transition: color 0.2s;
 }
 
 .action-btn:hover {
     color: var(--primary-color);
+}
+
+.view-toggle {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    border-radius: 999px;
+    padding: 2px;
+    border: 1px solid color-mix(in srgb, var(--border-soft) 80%, transparent);
+    background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+    line-height: 1;
+}
+
+.toggle-btn {
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    height: 34px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.toggle-btn.active {
+    color: #fff;
+    background: var(--accent-color);
 }
 
 .infinite-list-wrapper {
@@ -453,6 +522,110 @@ const gotoArticleVideo = (row: any) => {
     padding: 0;
     margin: 0;
     list-style: none;
+}
+
+.article-list.list-mode {
+    grid-template-columns: 1fr;
+    gap: 0;
+}
+
+.article-list.list-mode .article-card-wrapper {
+    border-bottom: 1px solid color-mix(in srgb, var(--border-soft) 60%, transparent);
+}
+
+.article-list.list-mode .article-card-wrapper:last-child {
+    border-bottom: none;
+}
+
+.article-list.list-mode .article-card {
+    display: grid;
+    grid-template-columns: var(--list-cover-size) minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: var(--list-row-min-height);
+    padding: 8px 6px;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+}
+
+.article-list.list-mode .article-card:hover {
+    background: color-mix(in srgb, var(--accent-color) 5%, transparent);
+    transform: none;
+    box-shadow: none;
+    border-color: transparent;
+}
+
+.article-list.list-mode .card-cover {
+    width: var(--list-cover-size);
+    height: var(--list-cover-size);
+    padding-top: 0;
+    border-radius: 8px;
+}
+
+.article-list.list-mode .card-cover .card-overlay {
+    display: none;
+}
+
+.article-list.list-mode .card-content {
+    padding: 2px 12px;
+    justify-content: center;
+    align-items: flex-start;
+    text-align: left;
+}
+
+.article-list.list-mode .card-header {
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+.article-list.list-mode .card-title {
+    -webkit-line-clamp: 1;
+    height: auto;
+    margin-bottom: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+}
+
+.article-list.list-mode .card-tags {
+    margin-top: 0;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.article-list.list-mode .card-meta {
+    justify-content: flex-start;
+    gap: 14px;
+    margin-bottom: 0;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.article-list.list-mode .card-footer {
+    display: none;
+}
+
+.list-actions {
+    display: none;
+}
+
+.article-list.list-mode .list-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+    flex-shrink: 0;
+}
+
+.article-list.list-mode .list-actions .el-button {
+    margin: 0;
 }
 
 .article-card-wrapper {
@@ -629,8 +802,36 @@ const gotoArticleVideo = (row: any) => {
 }
 
 @media (max-width: 600px) {
+    .breadcrumb-container {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 16px;
+    }
+
+    .breadcrumb-actions {
+        width: 100%;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .infinite-list-wrapper {
+        padding: 0 16px 20px;
+    }
+
     .article-list {
         grid-template-columns: 1fr;
+    }
+
+    .article-list.list-mode .article-card {
+        grid-template-columns: 1fr;
+        min-height: 0;
+    }
+
+    .article-list.list-mode .card-cover {
+        padding-top: 56.25%;
+        height: auto;
     }
 }
 </style>
