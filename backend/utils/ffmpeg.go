@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,6 +30,11 @@ func runMergeCmd(cmd *exec.Cmd, paths []string, mergeFilePath string) error {
 
 // MergeAudio merge audio
 func MergeAudio(paths []string, mergedFilePath string) error {
+	return MergeAudioContext(context.Background(), paths, mergedFilePath)
+}
+
+// MergeAudioContext merges audio files and respects cancellation.
+func MergeAudioContext(ctx context.Context, paths []string, mergedFilePath string) error {
 	cmds := []string{
 		"-y",
 	}
@@ -36,11 +42,20 @@ func MergeAudio(paths []string, mergedFilePath string) error {
 		cmds = append(cmds, "-i", path)
 	}
 	cmds = append(cmds, "-c:v", "copy", mergedFilePath)
-	return runMergeCmd(exec.Command(FfmpegDir, cmds...), paths, "")
+	err := runMergeCmd(exec.CommandContext(ctx, FfmpegDir, cmds...), paths, "")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
 
 // MergeAudioAndVideo merge audio and video
 func MergeAudioAndVideo(paths []string, mergedFilePath string) error {
+	return MergeAudioAndVideoContext(context.Background(), paths, mergedFilePath)
+}
+
+// MergeAudioAndVideoContext merges audio and video files and respects cancellation.
+func MergeAudioAndVideoContext(ctx context.Context, paths []string, mergedFilePath string) error {
 	cmds := []string{
 		"-y",
 	}
@@ -48,7 +63,11 @@ func MergeAudioAndVideo(paths []string, mergedFilePath string) error {
 		cmds = append(cmds, "-i", path)
 	}
 	cmds = append(cmds, "-c:v", "copy", "-c:a", "copy", mergedFilePath)
-	return runMergeCmd(exec.Command(FfmpegDir, cmds...), paths, "")
+	err := runMergeCmd(exec.CommandContext(ctx, FfmpegDir, cmds...), paths, "")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
 
 // MergeToMP4 merges video parts to an MP4 file.
