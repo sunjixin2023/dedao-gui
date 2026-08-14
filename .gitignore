@@ -28,6 +28,7 @@ coverage.txt
 .playwright-cli
 .DS_Store
 .claude
+.superpowers/
 release
 *.bak
 tmp_*
