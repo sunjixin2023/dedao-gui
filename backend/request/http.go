@@ -1,7 +1,7 @@
 package request
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,12 +13,35 @@ import (
 
 var (
 	// UserAgent UserAgent
-	UserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+	UserAgent               = "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+	errContentLengthMissing = errors.New("Content-Length is not present")
 )
 
 // HTTPClient http client
 type HTTPClient struct {
 	resty.Client
+}
+
+type GetOptions struct {
+	Header         http.Header
+	ExpectedStatus []int
+}
+
+type StatusError struct {
+	Code int
+	URL  string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("unexpected HTTP status %d for %s", e.Code, e.URL)
+}
+
+func (e *StatusError) AuthenticationRequired() bool {
+	return e.Code == http.StatusUnauthorized || e.Code == http.StatusForbidden
+}
+
+func (e *StatusError) VerificationRequired() bool {
+	return e.Code == 496
 }
 
 // NewClient new HTTPClient
@@ -36,55 +59,155 @@ func HTTPGet(url string) (body []byte, err error) {
 	}
 
 	body = r.Body()
-	// defer r.Body.Close()
-	// body, err = io.ReadAll(r.Body())
-	// if err != nil {
-	// 	return
-	// }
 	return
+}
+
+func newRequestWithHeader(ctx context.Context, method, rawURL string, header http.Header) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header = header.Clone()
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", UserAgent)
+	}
+	return req, nil
+}
+
+func contentLengthFromHeader(header http.Header) (int64, error) {
+	s := header.Get("Content-Length")
+	if s == "" {
+		return 0, errContentLengthMissing
+	}
+	size, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if size < 0 {
+		return 0, fmt.Errorf("invalid Content-Length %q", s)
+	}
+	return size, nil
+}
+
+func expectedStatuses(codes []int) []int {
+	if len(codes) == 0 {
+		return []int{http.StatusOK}
+	}
+	return codes
+}
+
+func getMetadataHeaders(ctx context.Context, rawURL string, header http.Header) (http.Header, error) {
+	body, response, err := GetWithOptions(ctx, rawURL, GetOptions{Header: header})
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	return response.Header.Clone(), nil
+}
+
+func shouldFallbackFromHead(err error) bool {
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.Code == http.StatusMethodNotAllowed || statusErr.Code == http.StatusNotImplemented
+}
+
+func GetWithOptions(ctx context.Context, rawURL string, opts GetOptions) (io.ReadCloser, *http.Response, error) {
+	req, err := newRequestWithHeader(ctx, http.MethodGet, rawURL, opts.Header)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, code := range expectedStatuses(opts.ExpectedStatus) {
+		if resp.StatusCode == code {
+			return resp.Body, resp, nil
+		}
+	}
+
+	_ = resp.Body.Close()
+	return nil, resp, &StatusError{Code: resp.StatusCode, URL: rawURL}
 }
 
 // Get http get request
 func Get(url string) (io.ReadCloser, error) {
-	client := NewClient(url)
-	resp, err := client.R().Get(url)
+	body, _, err := GetWithOptions(context.Background(), url, GetOptions{
+		ExpectedStatus: []int{http.StatusOK},
+	})
+	return body, err
+}
+
+func Head(ctx context.Context, rawURL string, header http.Header) (http.Header, error) {
+	req, err := newRequestWithHeader(ctx, http.MethodHead, rawURL, header)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("http error: status code %d", resp.StatusCode())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
 	}
-	data := resp.Body()
-	reader := bytes.NewReader(data)
-	result := io.NopCloser(reader)
+	defer resp.Body.Close()
 
-	return result, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, &StatusError{Code: resp.StatusCode, URL: rawURL}
+	}
+
+	return resp.Header.Clone(), nil
 }
 
 // Headers return the HTTP Headers of the url
 func Headers(url string) (http.Header, error) {
-	client := NewClient(url)
-	resp, err := client.R().Get("")
+	return getMetadataHeaders(context.Background(), url, nil)
+}
+
+func SizeWithHeader(ctx context.Context, url string, header http.Header) (int64, error) {
+	h, err := Head(ctx, url, header)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	// defer resp.Body.Close()
-	return resp.Header(), nil
+	return contentLengthFromHeader(h)
 }
 
 // Size get size of the url
 func Size(url string) (int, error) {
-	h, err := Headers(url)
+	header, err := Head(context.Background(), url, nil)
+	switch {
+	case err == nil:
+		size, sizeErr := contentLengthFromHeader(header)
+		if sizeErr == nil {
+			return checkedSize(size)
+		}
+		if !errors.Is(sizeErr, errContentLengthMissing) {
+			return 0, sizeErr
+		}
+	case shouldFallbackFromHead(err):
+	default:
+		return 0, err
+	}
+
+	header, err = getMetadataHeaders(context.Background(), url, nil)
 	if err != nil {
 		return 0, err
 	}
-	s := h.Get("Content-Length")
-	if s == "" {
-		return 0, errors.New("Content-Length is not present")
-	}
-	size, err := strconv.Atoi(s)
+	size, err := contentLengthFromHeader(header)
 	if err != nil {
 		return 0, err
 	}
-	return size, nil
+	return checkedSize(size)
+}
+
+func checkedSize(size int64) (int, error) {
+	maxInt := int64(^uint(0) >> 1)
+	if size > maxInt {
+		return 0, fmt.Errorf("Content-Length %d exceeds int range", size)
+	}
+	return int(size), nil
 }
