@@ -162,7 +162,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { SwitchButton, Clock, Present, School, Headset, Reading } from '@element-plus/icons-vue'
 
@@ -186,6 +186,8 @@ let alive = true
 let expiredSessionHandled = false
 let requestGeneration = 0
 let verificationNoticeGeneration = -1
+let sessionWatcherStop: (() => void) | null = null
+let profileLoadStarted = false
 
 const hasUsableUser = (candidate: Partial<services.User> | null | undefined) => {
     return Boolean(
@@ -251,12 +253,45 @@ const resetFreshUser = () => {
     Object.assign(user, new services.User())
 }
 
+const resetMembershipState = () => {
+    Object.assign(ebookUser, new services.EbookVIPInfo())
+    Object.assign(odobUser, new services.OdobVip())
+    odobUser.user = new services.OdobUser()
+}
+
+const resetProfileState = () => {
+    resetFreshUser()
+    resetMembershipState()
+}
+
 const invalidateRequests = () => {
     requestGeneration += 1
 }
 
 const isCurrentGeneration = (generation: number) => {
     return alive && generation === requestGeneration
+}
+
+const startProfileLoad = () => {
+    if (profileLoadStarted) {
+        return
+    }
+
+    profileLoadStarted = true
+    expiredSessionHandled = false
+    verificationNoticeGeneration = -1
+    const generation = requestGeneration + 1
+    requestGeneration = generation
+    void Promise.allSettled([
+        loadUserInfo(generation),
+        loadEbookUserInfo(generation),
+        loadOdobUserInfo(generation),
+    ])
+}
+
+const stopSessionWatcher = () => {
+    sessionWatcherStop?.()
+    sessionWatcherStop = null
 }
 
 const showWarning = (message: string) => {
@@ -293,7 +328,7 @@ const handleSessionError = async (error: unknown, generation: number) => {
         invalidateRequests()
         const message = await store.classifySessionError(error)
         if (alive) {
-            resetFreshUser()
+            resetProfileState()
             showWarning(message || '登录已失效，请重新扫码登录')
             pushByName(ROUTE_NAMES.LOGIN)
         }
@@ -301,7 +336,7 @@ const handleSessionError = async (error: unknown, generation: number) => {
     }
 
     if (alive) {
-        resetFreshUser()
+        resetProfileState()
     }
     return true
 }
@@ -373,7 +408,10 @@ const handleLogout = async () => {
     invalidateRequests()
     try {
         await store.logout()
+        stopSessionWatcher()
+        resetProfileState()
         ElMessage.success('已退出登录')
+        pushByName(ROUTE_NAMES.LOGIN)
     } catch (error) {
         ElMessage.error('退出失败，请重试')
     }
@@ -381,19 +419,35 @@ const handleLogout = async () => {
 
 onMounted(() => {
     alive = true
-    expiredSessionHandled = false
-    const generation = requestGeneration + 1
-    requestGeneration = generation
-    verificationNoticeGeneration = -1
-    void Promise.allSettled([
-        loadUserInfo(generation),
-        loadEbookUserInfo(generation),
-        loadOdobUserInfo(generation),
-    ])
+    profileLoadStarted = false
+    sessionWatcherStop = watch(
+        () => [store.sessionLoaded, store.loggedIn] as const,
+        ([sessionLoaded, loggedIn]) => {
+            if (!alive || profileLoadStarted) {
+                return
+            }
+
+            if (!sessionLoaded) {
+                return
+            }
+
+            stopSessionWatcher()
+            if (!loggedIn) {
+                invalidateRequests()
+                resetProfileState()
+                pushByName(ROUTE_NAMES.LOGIN)
+                return
+            }
+
+            startProfileLoad()
+        },
+        { immediate: true }
+    )
 })
 
 onBeforeUnmount(() => {
     alive = false
+    stopSessionWatcher()
     invalidateRequests()
 })
 
