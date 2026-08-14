@@ -250,6 +250,7 @@ func (c *chapterProgressCoordinator) emitSuccess(ctx context.Context, label stri
 		Total:   c.total,
 		Current: int(current),
 		Value:   label,
+		State:   DownloadRunning,
 	}
 	if c.total > 0 {
 		progress.Pct = int(current) * 100 / c.total

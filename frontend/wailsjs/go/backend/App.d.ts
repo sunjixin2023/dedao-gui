@@ -17,6 +17,8 @@ export function AudioDetail(arg1:string):Promise<services.AudioInfoResp>;
 
 export function AudioDetailAlias(arg1:string):Promise<services.Audio>;
 
+export function CancelDownload():Promise<void>;
+
 export function ChannelHomepage(arg1:number):Promise<Array<services.ChannelHomepageCategory>>;
 
 export function ChannelInfo(arg1:number):Promise<services.ChannelInfo>;

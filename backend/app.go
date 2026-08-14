@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -13,7 +14,10 @@ import (
 
 // App struct
 type App struct {
-	Ctx context.Context
+	Ctx                context.Context
+	downloadMu         sync.Mutex
+	downloadCancel     context.CancelFunc
+	downloadGeneration uint64
 }
 
 // NewApp creates a new App application struct

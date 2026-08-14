@@ -26,6 +26,10 @@ export function AudioDetailAlias(arg1) {
   return window['go']['backend']['App']['AudioDetailAlias'](arg1);
 }
 
+export function CancelDownload() {
+  return window['go']['backend']['App']['CancelDownload']();
+}
+
 export function ChannelHomepage(arg1) {
   return window['go']['backend']['App']['ChannelHomepage'](arg1);
 }

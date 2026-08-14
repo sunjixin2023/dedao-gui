@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -10,6 +12,8 @@ import (
 	"github.com/yann0917/dedao-gui/backend/services"
 	"github.com/yann0917/dedao-gui/backend/utils"
 )
+
+var errActiveDownload = errors.New("已有下载任务正在运行")
 
 func (a *App) OpenDirectoryDialog(title string) (dir string, err error) {
 	home, _ := os.LookupEnv("HOME")
@@ -88,35 +92,94 @@ func (a *App) SetDirConfig(cfg DirConfig) (err error) {
 	return nil
 }
 
+func (a *App) runDownload(run func(context.Context) error) error {
+	a.downloadMu.Lock()
+	if a.downloadCancel != nil {
+		a.downloadMu.Unlock()
+		return errActiveDownload
+	}
+
+	baseCtx := a.Ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(baseCtx)
+	a.downloadGeneration++
+	generation := a.downloadGeneration
+	a.downloadCancel = cancel
+	a.downloadMu.Unlock()
+
+	defer func() {
+		cancel()
+		a.downloadMu.Lock()
+		if a.downloadGeneration == generation {
+			a.downloadCancel = nil
+		}
+		a.downloadMu.Unlock()
+	}()
+
+	return run(ctx)
+}
+
+func (a *App) CancelDownload() {
+	a.downloadMu.Lock()
+	cancel := a.downloadCancel
+	a.downloadMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (a *App) CourseDownload(id, aid, dType int, enid string) (err error) {
-	var d app.CourseDownload
-	d.Ctx = a.Ctx
-	d.ID = id
-	d.AID = aid
-	d.EnId = enid
-	d.DownloadType = dType
-	err = d.Download()
-	return
+	return a.runDownload(func(ctx context.Context) error {
+		app.EmitDownloadState(ctx, "courseDownload", app.Progress{ID: id, Value: "准备下载"}, app.DownloadQueued, "")
+
+		d := app.CourseDownload{
+			Ctx:          ctx,
+			ID:           id,
+			AID:          aid,
+			EnId:         enid,
+			DownloadType: dType,
+		}
+
+		err := d.Download()
+		app.EmitTerminalDownloadState(ctx, "courseDownload", app.Progress{ID: id}, err)
+		return err
+	})
 }
 
 func (a *App) OdobDownload(id, dType int, data *services.Course) (err error) {
-	var d app.OdobDownload
-	d.Ctx = a.Ctx
-	d.ID = id
-	d.DownloadType = dType
-	d.Data = data
-	err = d.Download()
-	return
+	return a.runDownload(func(ctx context.Context) error {
+		app.EmitDownloadState(ctx, "odobDownload", app.Progress{ID: id, Value: "准备下载"}, app.DownloadQueued, "")
+
+		d := app.OdobDownload{
+			Ctx:          ctx,
+			ID:           id,
+			DownloadType: dType,
+			Data:         data,
+		}
+
+		err := d.Download()
+		app.EmitTerminalDownloadState(ctx, "odobDownload", app.Progress{ID: id}, err)
+		return err
+	})
 }
 
 func (a *App) EbookDownload(id, dType int, enid string) (err error) {
-	var d app.EBookDownload
-	d.Ctx = a.Ctx
-	d.ID = id
-	d.DownloadType = dType
-	d.EnID = enid
-	err = d.Download()
-	return
+	return a.runDownload(func(ctx context.Context) error {
+		app.EmitDownloadState(ctx, "ebookDownload", app.Progress{ID: id, Value: "准备下载"}, app.DownloadQueued, "")
+
+		d := app.EBookDownload{
+			Ctx:          ctx,
+			ID:           id,
+			DownloadType: dType,
+			EnID:         enid,
+		}
+
+		err := d.Download()
+		app.EmitTerminalDownloadState(ctx, "ebookDownload", app.Progress{ID: id}, err)
+		return err
+	})
 }
 
 func validateExecutablePath(path string, label string) error {

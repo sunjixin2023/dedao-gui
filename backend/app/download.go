@@ -43,12 +43,55 @@ type EBookDownload struct {
 	EnID         string
 }
 
+type DownloadState string
+
+const (
+	DownloadQueued    DownloadState = "queued"
+	DownloadRunning   DownloadState = "downloading"
+	DownloadVerifying DownloadState = "verifying"
+	DownloadCompleted DownloadState = "completed"
+	DownloadFailed    DownloadState = "failed"
+	DownloadCancelled DownloadState = "cancelled"
+)
+
 type Progress struct {
-	Total   int    `json:"total"`
-	Current int    `json:"current"`
-	Pct     int    `json:"pct"`
-	Value   string `json:"value"`
-	ID      int    `json:"id"` // 课程 id
+	Total   int           `json:"total"`
+	Current int           `json:"current"`
+	Pct     int           `json:"pct"`
+	Value   string        `json:"value"`
+	ID      int           `json:"id"` // 课程 id
+	State   DownloadState `json:"state"`
+	Detail  string        `json:"detail,omitempty"`
+}
+
+func EmitDownloadState(ctx context.Context, event string, progress Progress, state DownloadState, detail string) {
+	progress.State = state
+	progress.Detail = detail
+	runtime.EventsEmit(ctx, event, progress)
+}
+
+func EmitTerminalDownloadState(ctx context.Context, event string, progress Progress, err error) {
+	if err == nil {
+		if progress.Value == "" {
+			progress.Value = "下载完成"
+		}
+		progress.Pct = 100
+		EmitDownloadState(ctx, event, progress, DownloadCompleted, "")
+		return
+	}
+
+	detail := err.Error()
+	if errors.Is(err, context.Canceled) {
+		if progress.Value == "" {
+			progress.Value = "下载已取消"
+		}
+		EmitDownloadState(ctx, event, progress, DownloadCancelled, detail)
+		return
+	}
+	if progress.Value == "" {
+		progress.Value = "下载失败"
+	}
+	EmitDownloadState(ctx, event, progress, DownloadFailed, detail)
 }
 
 func SetOutputDir(dir string) {
@@ -96,7 +139,7 @@ func (d *CourseDownload) Download() error {
 			progress.Current = curr
 			progress.Pct = curr * 100 / progress.Total
 			progress.Value = datum.Title
-			runtime.EventsEmit(d.Ctx, "courseDownload", progress)
+			EmitDownloadState(d.Ctx, "courseDownload", progress, DownloadRunning, "")
 			if !datum.IsCanDL {
 				continue
 			}
@@ -132,7 +175,7 @@ func (d *CourseDownload) Download() error {
 			progress.Current = curr
 			progress.Pct = curr * 100 / progress.Total
 			progress.Value = datum.Title + ".mp4"
-			runtime.EventsEmit(d.Ctx, "courseDownload", progress)
+			EmitDownloadState(d.Ctx, "courseDownload", progress, DownloadRunning, "")
 
 			if !datum.IsCanDL {
 				continue
@@ -190,7 +233,7 @@ func (d *OdobDownload) Download() error {
 			progress.Current = curr
 			progress.Pct = curr * 100 / progress.Total
 			progress.Value = datum.Title + ".mp3"
-			runtime.EventsEmit(d.Ctx, "odobDownload", progress)
+			EmitDownloadState(d.Ctx, "odobDownload", progress, DownloadRunning, "")
 			if !datum.IsCanDL {
 				continue
 			}
@@ -225,7 +268,7 @@ func (d *OdobDownload) Download() error {
 		progress.Current = 100
 		progress.Pct = 100 * 100 / progress.Total
 		progress.Value = d.Data.Title + ".pdf"
-		runtime.EventsEmit(d.Ctx, "odobDownload", progress)
+		EmitDownloadState(d.Ctx, "odobDownload", progress, DownloadVerifying, "")
 		return utils.Md2Pdf(path, d.Data.Title, []byte(res))
 	case 3:
 		// 下载 Markdown
@@ -239,7 +282,7 @@ func (d *OdobDownload) Download() error {
 		progress.Current = 100
 		progress.Pct = 100 * 100 / progress.Total
 		progress.Value = d.Data.Title + ".md"
-		runtime.EventsEmit(d.Ctx, "odobDownload", progress)
+		EmitDownloadState(d.Ctx, "odobDownload", progress, DownloadVerifying, "")
 		if err := DownloadOdobMarkdown(d.Data, path); err != nil {
 			return err
 		}
@@ -275,7 +318,7 @@ func (d *EBookDownload) Download() error {
 	var progress Progress
 	progress.Pct = 100
 	progress.Value = "正在生成" + dType[d.DownloadType] + "文件"
-	runtime.EventsEmit(d.Ctx, "ebookDownload", progress)
+	EmitDownloadState(d.Ctx, "ebookDownload", progress, DownloadVerifying, "")
 	switch d.DownloadType {
 	case 1:
 		if err = utils.Svg2Html(OutputDir, title, svgContent, info.BookInfo.Toc); err != nil {
@@ -798,7 +841,7 @@ func DownloadPdfCourse(list []downloader.Datum, path string, ctx context.Context
 		progress.Current = curr
 		progress.Pct = curr * 100 / progress.Total
 		progress.Value = v.Title
-		runtime.EventsEmit(ctx, "courseDownload", progress)
+		EmitDownloadState(ctx, "courseDownload", progress, DownloadRunning, "")
 		detail, err := ArticleDetail(v.Enid)
 		if err != nil {
 			fmt.Println(err.Error())
@@ -843,7 +886,7 @@ func DownloadMarkdown(list *services.ArticleList, aid int, path string, ctx cont
 		progress.Current = curr
 		progress.Pct = curr * 100 / progress.Total
 		progress.Value = v.Title
-		runtime.EventsEmit(ctx, "courseDownload", progress)
+		EmitDownloadState(ctx, "courseDownload", progress, DownloadRunning, "")
 
 		if aid > 0 && v.ID != aid {
 			continue

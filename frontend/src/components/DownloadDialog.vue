@@ -1,50 +1,66 @@
 <template>
-    <el-dialog 
-        v-model="dialogVisible" 
-        title="下载选项" 
-        align-center 
-        center 
-        width="420px" 
+    <el-dialog
+        v-model="dialogVisible"
+        title="下载选项"
+        align-center
+        center
+        width="420px"
         :before-close="closeDialog"
         class="custom-download-dialog"
     >
         <div class="download-container">
             <div class="format-selector">
                 <div class="section-label">选择导出格式</div>
-                <div class="format-options">
-                    <div 
-                        v-for="item in props.downloadTypeOptions" 
-                        :key="item.value" 
-                        class="format-option"
-                        :class="downloadType === item.value ? 'active' : ''"
-                        @click="downloadType = item.value"
+                <el-radio-group v-model="downloadType" class="format-radio-group" :disabled="isForegroundActive">
+                    <el-radio-button
+                        v-for="item in props.downloadTypeOptions"
+                        :key="item.value"
+                        :label="item.value"
                     >
-                        <span class="format-text">{{ item.label }}</span>
-                        <el-icon v-if="downloadType === item.value" class="selected-icon"><Check /></el-icon>
-                    </div>
-                </div>
+                        {{ item.label }}
+                    </el-radio-button>
+                </el-radio-group>
             </div>
 
-            <div v-if="percentage > 0" class="download-status">
+            <div v-if="showStatus" class="download-status" :class="`is-${state}`">
                 <div class="status-header">
                     <span class="status-text">{{ content }}</span>
                     <span class="status-percent">{{ percentage }}%</span>
                 </div>
-                <el-progress 
+                <el-progress
                     :percentage="percentage"
                     :stroke-width="8"
                     :show-text="false"
-                    status="success"
+                    :status="progressStatus"
                     class="custom-progress"
                 />
+                <div class="status-meta">{{ stateLabel }}</div>
+                <div v-if="errorDetail" class="status-detail">{{ errorDetail }}</div>
             </div>
         </div>
 
         <template #footer>
             <div class="dialog-footer">
-                <el-button @click="closeDialog" :disabled="isDownloading">取消</el-button>
-                <el-button type="primary" @click="download()" :loading="isDownloading">
-                    {{ isDownloading ? '下载中...' : '开始下载' }}
+                <el-button @click="handleSecondaryAction" :disabled="cancelPending || isForegroundActive">
+                    {{ secondaryActionLabel }}
+                </el-button>
+                <el-button
+                    v-if="showPrimaryAction"
+                    type="primary"
+                    @click="download"
+                    :loading="isStarting"
+                    :disabled="isForegroundActive || cancelPending"
+                >
+                    {{ primaryActionLabel }}
+                </el-button>
+                <el-button
+                    v-if="isForegroundActive || cancelPending"
+                    type="danger"
+                    plain
+                    @click="cancelDownload"
+                    :loading="cancelPending"
+                >
+                    取消下载
                 </el-button>
             </div>
         </template>
@@ -52,124 +68,324 @@
 </template>
 
 <script lang="ts" setup>
-import {onMounted, ref, computed, PropType} from "vue";
-import {EbookDownload, CourseDownload, OdobDownload} from "../../wailsjs/go/backend/App";
-import {ElMessage} from "element-plus";
-import { EventsOn, EventsOff} from "../../wailsjs/runtime/runtime";
-import { Check } from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
+import { CancelDownload, CourseDownload, EbookDownload, OdobDownload } from "../../wailsjs/go/backend/App";
+import { ElMessage } from "element-plus";
+import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
 
-let percentage=ref(0)
-let content=ref('')
-const isDownloading = ref(false)
+type DownloadState = 'queued' | 'downloading' | 'verifying' | 'completed' | 'failed' | 'cancelled'
 
+type DownloadProgressEvent = {
+    pct?: number
+    value?: string
+    state?: DownloadState
+    detail?: string
+}
+
+const percentage = ref(0)
+const content = ref('')
+const errorDetail = ref('')
+const state = ref<DownloadState>('queued')
 const dialogVisible = ref(false)
 const downloadType = ref(1)
+const isStarting = ref(false)
+const cancelPending = ref(false)
+
+let removeEventListener: (() => void) | null = null
+let activeEventName = ''
 
 const props = defineProps({
-    downloadId:{
-        type:Number,
-        required:true,
-        default:0,
+    downloadId: {
+        type: Number,
+        required: true,
+        default: 0,
     },
-    enId:{
-        type:String,
-        default:'',
+    enId: {
+        type: String,
+        default: '',
     },
-    prodType:{
-        type:Number,
-        required:true,
-        default:0,
+    prodType: {
+        type: Number,
+        required: true,
+        default: 0,
     },
-    articleId:{
-        type:Number,
-        default:0,
+    articleId: {
+        type: Number,
+        default: 0,
     },
     dialogVisible: {
         type: Boolean,
         default: false,
     },
-    downloadTypeOptions:{
-        type: Array as PropType<Array<{value: number, label: string}>>,
-        required:true,
-        default:() => []
+    downloadTypeOptions: {
+        type: Array as PropType<Array<{ value: number; label: string }>>,
+        required: true,
+        default: () => []
     },
     downloadData: {
         type: Object,
         default: () => ({})
     }
 });
+
 const emits = defineEmits(["close"]);
 
-onMounted(() => {
-    openDialog();
-});
+const isForegroundActive = computed(() => isStarting.value || cancelPending.value)
+
+const showStatus = computed(() => {
+    return content.value !== '' || percentage.value > 0 || state.value !== 'queued' || errorDetail.value !== ''
+})
+
+const stateLabel = computed(() => {
+    switch (state.value) {
+        case 'queued':
+            return '等待开始'
+        case 'downloading':
+            return '下载中'
+        case 'verifying':
+            return '处理中'
+        case 'completed':
+            return '已完成'
+        case 'failed':
+            return '下载失败'
+        case 'cancelled':
+            return '已取消'
+    }
+})
+
+const progressStatus = computed(() => {
+    return state.value === 'failed' ? 'exception' : state.value === 'completed' ? 'success' : undefined
+})
+
+const primaryActionLabel = computed(() => {
+    if (state.value === 'failed') {
+        return '重试下载'
+    }
+    if (state.value === 'cancelled') {
+        return '重新开始'
+    }
+    return '开始下载'
+})
+
+const secondaryActionLabel = computed(() => '取消')
+
+const showPrimaryAction = computed(() => state.value !== 'completed')
 
 const openDialog = () => {
     dialogVisible.value = props.dialogVisible
-    // Set default download type to the first option if available
-    if (props.downloadTypeOptions && props.downloadTypeOptions.length > 0) {
+    if (props.downloadTypeOptions.length > 0) {
         downloadType.value = props.downloadTypeOptions[0].value
     }
+    resetDialogState()
+}
+
+const resetDialogState = () => {
+    percentage.value = 0
+    content.value = ''
+    errorDetail.value = ''
+    state.value = 'queued'
+    isStarting.value = false
+    cancelPending.value = false
+}
+
+const eventNameForProduct = () => {
+    switch (props.prodType) {
+        case 2:
+            return 'ebookDownload'
+        case 66:
+            return 'courseDownload'
+        case 3:
+            return 'odobDownload'
+        default:
+            return ''
+    }
+}
+
+const detachProgressListener = () => {
+    if (removeEventListener) {
+        removeEventListener()
+        removeEventListener = null
+    }
+    if (activeEventName) {
+        EventsOff(activeEventName)
+        activeEventName = ''
+    }
+}
+
+const applyProgressEvent = (data?: DownloadProgressEvent) => {
+    if (!data) {
+        return
+    }
+
+    if (typeof data.pct === 'number') {
+        percentage.value = Number(data.pct)
+    }
+    if (typeof data.detail === 'string') {
+        errorDetail.value = data.detail
+    }
+
+    const nextState = data.state ?? state.value
+    state.value = nextState
+
+    if (typeof data.value === 'string' && data.value.trim() !== '') {
+        if (nextState === 'downloading') {
+            content.value = `${data.value} 下载中...`
+        } else {
+            content.value = data.value
+        }
+    } else {
+        switch (nextState) {
+            case 'queued':
+                content.value = '准备下载...'
+                break
+            case 'downloading':
+                content.value = '下载中...'
+                break
+            case 'verifying':
+                content.value = '正在处理下载文件...'
+                break
+            case 'completed':
+                content.value = '下载完成'
+                break
+            case 'failed':
+                content.value = '下载失败'
+                break
+            case 'cancelled':
+                content.value = '已取消，可稍后继续下载'
+                break
+        }
+    }
+
+    if (nextState === 'completed') {
+        percentage.value = 100
+    }
+}
+
+const attachProgressListener = () => {
+    detachProgressListener()
+    activeEventName = eventNameForProduct()
+    if (!activeEventName) {
+        return
+    }
+    removeEventListener = EventsOn(activeEventName, (data: DownloadProgressEvent) => {
+        applyProgressEvent(data)
+    })
 }
 
 const closeDialog = () => {
-    if (isDownloading.value) {
-        return // Prevent closing while downloading unless explicitly handled? 
-               // Actually user might want to cancel/background it, but for now let's keep it simple.
-               // But the original code allowed closing. Let's allow closing but cleanup events.
+    if (isForegroundActive.value) {
+        return
     }
-    EventsOff("courseDownload", "ebookDownload", "odobDownload")
-    percentage.value = 0
-    content.value = ''
-    isDownloading.value = false
+    detachProgressListener()
+    resetDialogState()
     emits("close")
 }
 
-const download = async () => {
-    isDownloading.value = true
-    content.value = '准备下载...'
-    percentage.value = 0
-    
+const handleSecondaryAction = () => {
+    if (isForegroundActive.value) {
+        return
+    }
+    closeDialog()
+}
+
+const normalizeError = (error: unknown) => {
+    if (error instanceof Error) {
+        return error.message
+    }
+    return String(error)
+}
+
+const cancelDownload = async () => {
+    if (!isForegroundActive.value || cancelPending.value) {
+        return
+    }
+
+    cancelPending.value = true
+    state.value = 'cancelled'
+    content.value = '已取消，可稍后继续下载'
+
     try {
-        switch (props.prodType) {
-            case 2: // Ebook
-                EventsOn("ebookDownload", data => {
-                    if (data) {
-                        percentage.value = data.pct
-                        content.value = data.value + ' 下载中...'
-                    }
-                })
-                await EbookDownload(props.downloadId, downloadType.value, props.enId)
-                break;
-            case 66: // Course
-                EventsOn("courseDownload", data => {
-                    if (data) {
-                        percentage.value = data.pct
-                        content.value = data.value + ' 下载中...'
-                    }
-                })
-                await CourseDownload(props.downloadId, props.articleId, downloadType.value, props.enId)
-                break;
-            case 3: // Odob
-                EventsOn("odobDownload", data => {
-                    if (data) {
-                        percentage.value = data.pct
-                        content.value = data.value + ' 下载中...'
-                    }
-                })
-                await OdobDownload(props.downloadId, downloadType.value, props.downloadData as any)
-                break;
-        }
+        await CancelDownload()
     } catch (error) {
+        const message = normalizeError(error)
+        state.value = 'failed'
+        content.value = '取消下载失败'
+        errorDetail.value = message
         ElMessage({
-            message: String(error),
+            message,
             type: 'warning'
         })
     } finally {
-        isDownloading.value = false
-        closeDialog()
+        cancelPending.value = false
     }
 }
+
+const download = async () => {
+    attachProgressListener()
+    state.value = 'queued'
+    content.value = '准备下载...'
+    errorDetail.value = ''
+    percentage.value = 0
+    isStarting.value = true
+
+    try {
+        switch (props.prodType) {
+            case 2:
+                await EbookDownload(props.downloadId, downloadType.value, props.enId)
+                break
+            case 66:
+                await CourseDownload(props.downloadId, props.articleId, downloadType.value, props.enId)
+                break
+            case 3:
+                await OdobDownload(props.downloadId, downloadType.value, props.downloadData as any)
+                break
+            default:
+                throw new Error('不支持的下载类型')
+        }
+
+        const currentState = state.value as DownloadState
+        if (currentState === 'completed') {
+            isStarting.value = false
+            closeDialog()
+            return
+        }
+    } catch (error) {
+        const message = normalizeError(error)
+
+        const currentState = state.value as DownloadState
+        if (currentState === 'cancelled') {
+            errorDetail.value = errorDetail.value || message
+            content.value = content.value || '已取消，可稍后继续下载'
+            return
+        }
+
+        state.value = 'failed'
+        content.value = '下载失败'
+        errorDetail.value = errorDetail.value || message
+        ElMessage({
+            message,
+            type: 'warning'
+        })
+    } finally {
+        isStarting.value = false
+    }
+}
+
+watch(() => props.dialogVisible, (visible) => {
+    dialogVisible.value = visible
+    if (!visible && !isForegroundActive.value) {
+        detachProgressListener()
+        resetDialogState()
+    }
+})
+
+onMounted(() => {
+    openDialog()
+})
+
+onBeforeUnmount(() => {
+    detachProgressListener()
+})
 </script>
 
 <style scoped>
@@ -188,45 +404,10 @@ const download = async () => {
     font-weight: 500;
 }
 
-.format-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
-    gap: 12px;
-}
-
-.format-option {
-    position: relative;
+.format-radio-group {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 40px;
-    border: 1px solid var(--border-color, #dcdfe6);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
-    background-color: var(--fill-color-light, #f5f7fa);
-    font-size: 14px;
-    color: var(--text-primary, #303133);
-}
-
-.format-option:hover {
-    border-color: var(--primary-color, #409eff);
-    color: var(--primary-color, #409eff);
-    background-color: var(--primary-color-light-9, #ecf5ff);
-}
-
-.format-option.active {
-    border-color: var(--primary-color, #409eff);
-    background-color: var(--primary-color, #409eff);
-    color: white;
-    font-weight: 500;
-}
-
-.selected-icon {
-    position: absolute;
-    right: 4px;
-    top: 4px;
-    font-size: 12px;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .download-status {
@@ -237,11 +418,27 @@ const download = async () => {
     border: 1px solid var(--border-color-lighter, #ebeef5);
 }
 
+.download-status.is-failed {
+    border-color: var(--el-color-danger-light-5);
+    background: var(--el-color-danger-light-9);
+}
+
+.download-status.is-cancelled {
+    border-color: var(--el-color-warning-light-5);
+    background: var(--el-color-warning-light-9);
+}
+
+.download-status.is-completed {
+    border-color: var(--el-color-success-light-5);
+    background: var(--el-color-success-light-9);
+}
+
 .status-header {
     display: flex;
     justify-content: space-between;
     margin-bottom: 8px;
     font-size: 13px;
+    gap: 12px;
 }
 
 .status-text {
@@ -255,6 +452,20 @@ const download = async () => {
 .status-percent {
     color: var(--primary-color, #409eff);
     font-weight: 600;
+}
+
+.status-meta {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary, #909399);
+}
+
+.status-detail {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--el-color-danger);
+    word-break: break-word;
 }
 
 .dialog-footer {
