@@ -45,7 +45,7 @@
         />
         <el-result class="home-error-result" icon="error" title="暂时无法打开首页" :sub-title="loadError">
           <template #extra>
-            <el-button type="primary" round @click="loadHome">重新加载</el-button>
+            <el-button type="primary" round :loading="loading" :disabled="loading" @click="loadHome">重新加载</el-button>
           </template>
         </el-result>
       </div>
@@ -58,7 +58,7 @@
           <template #default>
             <div class="home-inline-feedback-body">
               <span>{{ loadError }}</span>
-              <el-button type="primary" round size="small" @click="loadHome">重新加载</el-button>
+              <el-button type="primary" round size="small" :loading="loading" :disabled="loading" @click="loadHome">重新加载</el-button>
             </div>
           </template>
         </el-alert>
@@ -459,7 +459,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onMounted, computed, watch } from "vue";
+import { ref, reactive, onMounted, onBeforeUnmount, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { VideoPlay, Headset, Reading } from '@element-plus/icons-vue'
 import {
@@ -478,7 +478,7 @@ import { useAppRouter } from "../composables/useRouter";
 import { ROUTE_NAMES } from "../router/routes";
 import { learningStore } from "../stores/learning";
 import { playerStore } from "../stores/player";
-import { userStore } from "../stores/user";
+import { classifySessionErrorMessage, userStore } from "../stores/user";
 
 const { pushByName, push } = useAppRouter();
 const lStore = learningStore();
@@ -562,6 +562,16 @@ const userInfoLoaded = ref(false);
 let userInfoRequest: Promise<boolean> | null = null;
 const HOME_EBOOK_PAGE_SIZE = 10;
 const HOME_COURSE_PAGE_SIZE = 4;
+let homeLoadGeneration = 0;
+let userInfoGeneration = 0;
+let homeActive = true;
+let expiredSessionHandled = false;
+
+type HomeHandledError = {
+  __homeHandled: true;
+  cause: unknown;
+  message: string;
+};
 
 const normalizeErrorMessage = (error: unknown) => {
   const message = String(error || "").trim();
@@ -582,44 +592,86 @@ const handleSessionError = async (
   options: { notify?: boolean } = {}
 ) => {
   const raw = String(error || "");
-  const sessionMessage = await store.classifySessionError(error);
-  if (!sessionMessage) return "";
+  const classification = classifySessionErrorMessage(raw);
+  if (!classification) return "";
+
+  let sessionMessage = "";
+  if (classification === "verification") {
+    sessionMessage = "需要验证，请先在得到官网完成验证码后重试";
+  } else {
+    if (!expiredSessionHandled) {
+      expiredSessionHandled = true;
+      sessionMessage = await store.classifySessionError(error);
+      pushByName(ROUTE_NAMES.LOGIN);
+    } else {
+      sessionMessage = "登录已失效，请重新扫码登录";
+    }
+  }
+
   if (options.notify !== false) {
     ElMessage({
       message: sessionMessage,
       type: "warning",
     });
   }
-  if (/\b(401|403)\b/.test(raw)) {
-    pushByName(ROUTE_NAMES.LOGIN);
-  }
   return sessionMessage;
 };
 
-const setLoadErrorFromError = async (error: unknown) => {
-  const sessionMessage = await handleSessionError(error, { notify: false });
-  loadError.value = sessionMessage || normalizeErrorMessage(error);
+const isCurrentLoadGeneration = (generation: number) => {
+  return homeActive && generation === homeLoadGeneration;
 };
 
-const settleOrThrow = async <T extends readonly unknown[]>(
-  requests: { [K in keyof T]: Promise<T[K]> }
-): Promise<T> => {
-  const settled = await Promise.allSettled(requests);
-  const rejected = settled.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected"
-  );
-  if (rejected) {
-    throw rejected.reason;
+const isHomeHandledError = (error: unknown): error is HomeHandledError => {
+  return Boolean(error && typeof error === "object" && "__homeHandled" in error);
+};
+
+const buildHandledError = (cause: unknown, message: string): HomeHandledError => {
+  return {
+    __homeHandled: true,
+    cause,
+    message,
+  };
+};
+
+const setVisibleLoadError = (message: string, generation?: number) => {
+  if (!message) return;
+  if (typeof generation === "number" && !isCurrentLoadGeneration(generation)) return;
+  if (!homeActive) return;
+  loadError.value = message;
+};
+
+const resolveErrorMessage = async (error: unknown) => {
+  if (isHomeHandledError(error)) {
+    return error.message;
   }
-  return settled.map(
-    (result) => (result as PromiseFulfilledResult<unknown>).value
-  ) as unknown as T;
+  const sessionMessage = await handleSessionError(error, { notify: false });
+  return sessionMessage || normalizeErrorMessage(error);
 };
 
-const resetUserInfoState = () => {
+const collectRejectedReasons = (results: PromiseSettledResult<unknown>[]) => {
+  return results
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason);
+};
+
+const resolveLoadErrorMessage = async (errors: unknown[]) => {
+  const messages: string[] = [];
+  for (const error of errors) {
+    const message = await resolveErrorMessage(error);
+    if (message && !messages.includes(message)) {
+      messages.push(message);
+    }
+  }
+  return messages.join("；");
+};
+
+const invalidateUserInfoState = (options: { clearUser?: boolean } = {}) => {
+  userInfoGeneration += 1;
   userInfoLoaded.value = false;
   userInfoRequest = null;
-  Object.assign(user, new services.User());
+  if (options.clearUser !== false) {
+    Object.assign(user, new services.User());
+  }
 };
 
 const loadSunflowerContent = async (enid: string, nType: number, size = pageSize.value) => {
@@ -638,73 +690,111 @@ const loadSunflowerContent = async (enid: string, nType: number, size = pageSize
   }
 };
 
-const getUserInfo = async () => {
+const getUserInfo = async (requestGeneration: number) => {
   const result = await UserInfo();
+  if (!homeActive || requestGeneration !== userInfoGeneration || !store.loggedIn) {
+    return false;
+  }
   Object.assign(user, result);
   store.acceptLogin(Object.assign(new services.User(), result));
+  if (!homeActive || requestGeneration !== userInfoGeneration || !store.loggedIn) {
+    return false;
+  }
+  userInfoLoaded.value = true;
   return true;
 };
 
 const ensureUserInfo = async () => {
   if (!store.loggedIn) {
-    resetUserInfoState();
+    invalidateUserInfoState();
     return true;
   }
   if (userInfoLoaded.value) return true;
   if (userInfoRequest) return userInfoRequest;
 
-  userInfoRequest = getUserInfo()
-    .then(() => {
-      userInfoLoaded.value = true;
-      return true;
-    })
+  const requestGeneration = ++userInfoGeneration;
+  const request = getUserInfo(requestGeneration)
     .catch(async (error) => {
-      await setLoadErrorFromError(error);
-      throw error;
+      const message = await resolveErrorMessage(error);
+      if (requestGeneration === userInfoGeneration && homeActive) {
+        setVisibleLoadError(message);
+      }
+      throw buildHandledError(error, message);
     })
     .finally(() => {
-      userInfoRequest = null;
+      if (requestGeneration === userInfoGeneration) {
+        userInfoRequest = null;
+      }
     });
 
+  userInfoRequest = request;
   return userInfoRequest;
 };
 
 const loadHome = async () => {
+  const generation = ++homeLoadGeneration;
   loading.value = true;
   loadError.value = "";
-  try {
-    const [homeState, ebookLabels, courseLabels, resources] = await settleOrThrow([
-      GetHomeInitialState(),
-      SunflowerLabelList(2),
-      SunflowerLabelList(4),
-      SunflowerResourceList(),
-    ] as const);
+  const initialResults = await Promise.allSettled([
+    GetHomeInitialState(),
+    SunflowerLabelList(2),
+    SunflowerLabelList(4),
+    SunflowerResourceList(),
+  ] as const);
 
-    Object.assign(initial, homeState);
-    Object.assign(ebookLabelList, ebookLabels);
-    Object.assign(courseLabelList, courseLabels);
-    Object.assign(freeResourceList, resources);
+  if (!isCurrentLoadGeneration(generation)) return;
 
-    if (ebookLabels.list?.[0]) {
-      Object.assign(currentEbook, ebookLabels.list[0]);
+  const [homeStateResult, ebookLabelsResult, courseLabelsResult, resourcesResult] = initialResults;
+
+  if (homeStateResult.status === "fulfilled") {
+    Object.assign(initial, homeStateResult.value);
+  }
+  if (ebookLabelsResult.status === "fulfilled") {
+    Object.assign(ebookLabelList, ebookLabelsResult.value);
+    if (ebookLabelsResult.value.list?.[0]) {
+      Object.assign(currentEbook, ebookLabelsResult.value.list[0]);
     }
-    if (courseLabels.list?.[0]) {
-      Object.assign(currentCourse, courseLabels.list[0]);
+  }
+  if (courseLabelsResult.status === "fulfilled") {
+    Object.assign(courseLabelList, courseLabelsResult.value);
+    if (courseLabelsResult.value.list?.[0]) {
+      Object.assign(currentCourse, courseLabelsResult.value.list[0]);
     }
+  }
+  if (resourcesResult.status === "fulfilled") {
+    Object.assign(freeResourceList, resourcesResult.value);
+  }
 
-    const [ebooks, courses] = await settleOrThrow([
-      SunflowerLabelContent("", 2, page.value, HOME_EBOOK_PAGE_SIZE),
-      SunflowerLabelContent("", 4, page.value, HOME_COURSE_PAGE_SIZE),
-      store.sessionLoaded && store.loggedIn ? ensureUserInfo() : Promise.resolve(true),
-    ] as const);
+  const contentResults = await Promise.allSettled([
+    SunflowerLabelContent("", 2, page.value, HOME_EBOOK_PAGE_SIZE),
+    SunflowerLabelContent("", 4, page.value, HOME_COURSE_PAGE_SIZE),
+    store.sessionLoaded && store.loggedIn ? ensureUserInfo() : Promise.resolve(true),
+  ] as const);
 
-    Object.assign(ebookContentList, ebooks);
-    Object.assign(courseContentList, courses);
+  if (!isCurrentLoadGeneration(generation)) return;
+
+  const [ebooksResult, coursesResult] = contentResults;
+
+  if (ebooksResult.status === "fulfilled") {
+    Object.assign(ebookContentList, ebooksResult.value);
     idxEbookLabel.value = 0;
+  }
+  if (coursesResult.status === "fulfilled") {
+    Object.assign(courseContentList, coursesResult.value);
     idxCourseLabel.value = 0;
-  } catch (error) {
-    await setLoadErrorFromError(error);
-  } finally {
+  }
+
+  const loadErrors = [
+    ...collectRejectedReasons(initialResults),
+    ...collectRejectedReasons(contentResults),
+  ];
+
+  if (loadErrors.length > 0) {
+    const message = await resolveLoadErrorMessage(loadErrors);
+    setVisibleLoadError(message, generation);
+  }
+
+  if (isCurrentLoadGeneration(generation)) {
     loading.value = false;
   }
 };
@@ -712,8 +802,10 @@ const loadHome = async () => {
 watch(
   () => store.loggedIn,
   (loggedIn) => {
-    if (!loggedIn) {
-      resetUserInfoState();
+    if (loggedIn) {
+      expiredSessionHandled = false;
+    } else {
+      invalidateUserInfoState();
     }
   }
 );
@@ -732,6 +824,12 @@ watch(
 
 onMounted(() => {
   void loadHome();
+});
+
+onBeforeUnmount(() => {
+  homeActive = false;
+  homeLoadGeneration += 1;
+  invalidateUserInfoState({ clearUser: false });
 });
 
 const goToCourseList = () => {
