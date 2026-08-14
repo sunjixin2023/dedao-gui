@@ -90,6 +90,7 @@ const dialogVisible = ref(false)
 const downloadType = ref(1)
 const isStarting = ref(false)
 const cancelPending = ref(false)
+const deferredExternalHide = ref(false)
 
 let removeEventListener: (() => void) | null = null
 let activeEventName = ''
@@ -186,6 +187,7 @@ const resetDialogState = () => {
     state.value = 'queued'
     isStarting.value = false
     cancelPending.value = false
+    deferredExternalHide.value = false
 }
 
 const eventNameForProduct = () => {
@@ -272,6 +274,17 @@ const attachProgressListener = () => {
     })
 }
 
+const finalizeSuccessfulDownload = () => {
+    applyProgressEvent({
+        pct: 100,
+        state: 'completed',
+        value: content.value || '下载完成',
+    })
+    isStarting.value = false
+    deferredExternalHide.value = false
+    closeDialog()
+}
+
 const closeDialog = () => {
     if (isForegroundActive.value) {
         return
@@ -343,12 +356,8 @@ const download = async () => {
                 throw new Error('不支持的下载类型')
         }
 
-        const currentState = state.value as DownloadState
-        if (currentState === 'completed') {
-            isStarting.value = false
-            closeDialog()
-            return
-        }
+        finalizeSuccessfulDownload()
+        return
     } catch (error) {
         const message = normalizeError(error)
 
@@ -372,11 +381,26 @@ const download = async () => {
 }
 
 watch(() => props.dialogVisible, (visible) => {
-    dialogVisible.value = visible
-    if (!visible && !isForegroundActive.value) {
-        detachProgressListener()
-        resetDialogState()
+    if (visible) {
+        deferredExternalHide.value = false
+        dialogVisible.value = true
+        return
     }
+
+    if (isForegroundActive.value) {
+        deferredExternalHide.value = true
+        dialogVisible.value = true
+        return
+    }
+
+    if (deferredExternalHide.value && (state.value === 'failed' || state.value === 'cancelled')) {
+        dialogVisible.value = true
+        return
+    }
+
+    dialogVisible.value = false
+    detachProgressListener()
+    resetDialogState()
 })
 
 onMounted(() => {
