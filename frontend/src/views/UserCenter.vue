@@ -5,14 +5,14 @@
             <div class="user-header">
                 <div class="user-info">
                     <div class="avatar-container">
-                        <el-avatar :size="80" :src="user.avatar" fit="cover" class="user-avatar" />
-                        <div v-if="user.is_teacher" class="teacher-badge">
+                        <el-avatar :size="80" :src="avatarSrc" fit="cover" class="user-avatar" />
+                        <div v-if="profileUser.is_teacher" class="teacher-badge">
                             <el-icon><School /></el-icon>
                             <span>教师</span>
                         </div>
                     </div>
                     <div class="user-meta">
-                        <h2 class="nickname">{{ user.nickname }}</h2>
+                        <h2 class="nickname">{{ displayNickname }}</h2>
                         <p v-if="ebookUser.slogan" class="slogan">{{ ebookUser.slogan }}</p>
                         <div class="membership-badges">
                             <div v-if="odobUser.user?.is_vip" class="vip-badge odob">
@@ -21,7 +21,7 @@
                                 </div>
                                 <div class="badge-content">
                                     <div class="badge-title">听书会员</div>
-                                    <div v-if="odobUser.user.surplus_time" class="badge-desc">
+                                    <div v-if="odobUser.user?.surplus_time" class="badge-desc">
                                         剩余 {{ odobUser.user.surplus_time }} 天
                                     </div>
                                 </div>
@@ -45,11 +45,11 @@
             <!-- 学习数据 -->
             <div class="study-stats">
                 <div class="stat-item">
-                    <span class="stat-value">{{ (user.today_study_time / 60).toFixed(0) }}</span>
+                    <span class="stat-value">{{ todayStudyMinutes }}</span>
                     <span class="stat-label">今日学习(分钟)</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-value">{{ user.study_serial_days }}</span>
+                    <span class="stat-value">{{ studyStreakDays }}</span>
                     <span class="stat-label">连续学习(天)</span>
                 </div>
             </div>
@@ -162,19 +162,184 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { SwitchButton, Clock, Present, School, Headset, Reading } from '@element-plus/icons-vue'
 
 import { UserInfo, EbookUserInfo, OdobUserInfo } from '../../wailsjs/go/backend/App'
 import { services } from '../../wailsjs/go/models'
-import { userStore } from '../stores/user';
+import logoUniversal from '../assets/images/logo-universal.png'
+import { ROUTE_NAMES } from '../router/routes'
+import { useAppRouter } from '../composables/useRouter'
+import { classifySessionErrorMessage, userStore } from '../stores/user';
 import { timestampToTime } from '../utils/utils'
+
 const store = userStore()
-let user = reactive(new services.User)
-let ebookUser = reactive(new services.EbookVIPInfo)
-let odobUser = reactive(new services.OdobVip)
-odobUser.user = new services.OdobUser
+const { pushByName } = useAppRouter()
+const emptyUser = new services.User()
+const user = reactive(new services.User())
+const ebookUser = reactive(new services.EbookVIPInfo())
+const odobUser = reactive(new services.OdobVip())
+odobUser.user = new services.OdobUser()
+
+let alive = true
+let expiredSessionHandled = false
+
+const hasUsableUser = (candidate: Partial<services.User> | null | undefined) => {
+    return Boolean(
+        String(candidate?.uid_hazy ?? '').trim() ||
+        String(candidate?.nickname ?? '').trim() ||
+        String(candidate?.avatar ?? '').trim()
+    )
+}
+
+const toSafeNonNegativeInteger = (value: unknown, divisor = 1) => {
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue)) {
+        return 0
+    }
+
+    const scaledValue = numericValue / divisor
+    if (!Number.isFinite(scaledValue) || scaledValue < 0) {
+        return 0
+    }
+
+    return Math.floor(scaledValue)
+}
+
+const isSupportedAvatarUrl = (value: unknown) => {
+    const avatar = String(value ?? '').trim()
+    if (!avatar) {
+        return false
+    }
+
+    return /^(https?:)?\/\//.test(avatar) || avatar.startsWith('data:image/')
+}
+
+const profileUser = computed(() => {
+    if (hasUsableUser(user)) {
+        return user
+    }
+
+    if (hasUsableUser(store.user)) {
+        return store.user as services.User
+    }
+
+    return emptyUser
+})
+
+const displayNickname = computed(() => {
+    return String(profileUser.value.nickname ?? '').trim() || '得到同学'
+})
+
+const avatarSrc = computed(() => {
+    const profileAvatar = String(profileUser.value.avatar ?? '').trim()
+    return isSupportedAvatarUrl(profileAvatar) ? profileAvatar : logoUniversal
+})
+
+const todayStudyMinutes = computed(() => {
+    return toSafeNonNegativeInteger(profileUser.value.today_study_time, 60)
+})
+
+const studyStreakDays = computed(() => {
+    return toSafeNonNegativeInteger(profileUser.value.study_serial_days)
+})
+
+const resetFreshUser = () => {
+    Object.assign(user, new services.User())
+}
+
+const showWarning = (message: string) => {
+    if (!alive || !message) {
+        return
+    }
+
+    ElMessage({
+        message,
+        type: 'warning',
+    })
+}
+
+const handleSessionError = async (error: unknown) => {
+    const classification = classifySessionErrorMessage(String(error ?? ''))
+    if (!classification) {
+        return false
+    }
+
+    if (classification === 'verification') {
+        const message = await store.classifySessionError(error)
+        showWarning(message || '需要验证，请先在得到官网完成验证码后重试')
+        return true
+    }
+
+    if (!expiredSessionHandled) {
+        expiredSessionHandled = true
+        const message = await store.classifySessionError(error)
+        resetFreshUser()
+        showWarning(message || '登录已失效，请重新扫码登录')
+        if (alive) {
+            pushByName(ROUTE_NAMES.LOGIN)
+        }
+        return true
+    }
+
+    resetFreshUser()
+    return true
+}
+
+const loadUserInfo = async () => {
+    try {
+        const result = await UserInfo()
+        if (!alive) {
+            return
+        }
+
+        const nextUser = Object.assign(new services.User(), result)
+        Object.assign(user, nextUser)
+        store.acceptLogin(nextUser)
+    } catch (error) {
+        if (await handleSessionError(error)) {
+            return
+        }
+
+        showWarning('个人资料加载失败，请稍后重试')
+    }
+}
+
+const loadEbookUserInfo = async () => {
+    try {
+        const result = await EbookUserInfo()
+        if (!alive) {
+            return
+        }
+
+        Object.assign(ebookUser, result)
+    } catch (error) {
+        if (await handleSessionError(error)) {
+            return
+        }
+
+        showWarning('电子书会员信息加载失败，请稍后重试')
+    }
+}
+
+const loadOdobUserInfo = async () => {
+    try {
+        const result = await OdobUserInfo()
+        if (!alive) {
+            return
+        }
+
+        Object.assign(odobUser, result)
+        odobUser.user = result?.user ? Object.assign(new services.OdobUser(), result.user) : new services.OdobUser()
+    } catch (error) {
+        if (await handleSessionError(error)) {
+            return
+        }
+
+        showWarning('听书会员信息加载失败，请稍后重试')
+    }
+}
 
 const handleLogout = async () => {
     try {
@@ -182,49 +347,21 @@ const handleLogout = async () => {
         ElMessage.success('已退出登录')
     } catch (error) {
         ElMessage.error('退出失败，请重试')
-        console.error('Logout error:', error)
     }
 }
 
 onMounted(() => {
-
+    alive = true
+    void Promise.allSettled([
+        loadUserInfo(),
+        loadEbookUserInfo(),
+        loadOdobUserInfo(),
+    ])
 })
 
-const getUserInfo = async () => {
-    UserInfo().then(result => {
-        Object.assign(user, result)
-        store.user = user
-        console.log(store)
-    })
-}
-getUserInfo()
-
-const getEbookUserInfo = async () => {
-    await EbookUserInfo().then(result => {
-        console.log(result)
-        Object.assign(ebookUser, result)
-    }).catch((error) => {
-        ElMessage({
-            message: error,
-            type: 'warning'
-        })
-    })
-}
-getEbookUserInfo()
-
-const getOdobUserInfo = async () => {
-    await OdobUserInfo().then(result => {
-        console.log(result)
-        Object.assign(odobUser, result)
-    }).catch((error) => {
-        ElMessage({
-            message: error,
-            type: 'warning'
-        })
-    })
-}
-
-getOdobUserInfo()
+onBeforeUnmount(() => {
+    alive = false
+})
 
 </script>
 <style scoped>
