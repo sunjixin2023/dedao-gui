@@ -29,6 +29,7 @@ coverage.txt
 .DS_Store
 .claude
 .superpowers/
+.worktrees/
 release
 *.bak
 tmp_*
