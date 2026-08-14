@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -429,7 +430,12 @@ func (s *Service) reqEbookInfo(token string) (io.ReadCloser, error) {
 
 // reqEbookPages 获取页面详情
 func (s *Service) reqEbookPages(chapterID, token string, index, count, offset int) (io.ReadCloser, error) {
+	return s.reqEbookPagesContext(context.Background(), chapterID, token, index, count, offset)
+}
+
+func (s *Service) reqEbookPagesContext(ctx context.Context, chapterID, token string, index, count, offset int) (io.ReadCloser, error) {
 	resp, err := s.client.R().
+		SetContext(ctx).
 		SetBody(map[string]interface{}{
 			"chapter_id":  chapterID,
 			"count":       count,

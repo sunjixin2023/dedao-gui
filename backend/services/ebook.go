@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"strings"
@@ -33,10 +34,11 @@ const (
 
 // requestLimiter 请求限流器
 type requestLimiter struct {
-	tokens         int        // 当前可用令牌数
-	maxTokens      int        // 最大令牌数
-	refillRate     float64    // 令牌填充速率（个/秒）
-	lastRefillTime time.Time  // 上次填充时间
+	tokens         int       // 当前可用令牌数
+	maxTokens      int       // 最大令牌数
+	refillRate     float64   // 令牌填充速率（个/秒）
+	lastRefillTime time.Time // 上次填充时间
+	jitterFunc     func() time.Duration
 	mutex          sync.Mutex // 互斥锁
 }
 
@@ -50,8 +52,33 @@ func newRequestLimiter(maxTokens int, refillRate float64) *requestLimiter {
 	}
 }
 
-// getToken 获取一个请求令牌，如果没有可用令牌则等待
-func (r *requestLimiter) getToken() time.Duration {
+func (r *requestLimiter) jitter() time.Duration {
+	if r.jitterFunc != nil {
+		return r.jitterFunc()
+	}
+	return time.Duration(rand.Float64() * 200 * float64(time.Millisecond))
+}
+
+func (r *requestLimiter) acquire(ctx context.Context) error {
+	if err := waitContext(ctx, r.jitter()); err != nil {
+		return err
+	}
+
+	for {
+		waitTime, acquired, err := r.tryAcquire()
+		if err != nil {
+			return err
+		}
+		if acquired {
+			return nil
+		}
+		if err := waitContext(ctx, waitTime); err != nil {
+			return err
+		}
+	}
+}
+
+func (r *requestLimiter) tryAcquire() (time.Duration, bool, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -68,16 +95,36 @@ func (r *requestLimiter) getToken() time.Duration {
 
 	// 如果没有令牌，计算等待时间
 	if r.tokens <= 0 {
+		if r.refillRate <= 0 {
+			return 0, false, fmt.Errorf("request limiter refillRate must be greater than zero")
+		}
 		// 计算需要等待多久才能获得一个令牌
 		waitTime := time.Duration((1.0 / r.refillRate) * float64(time.Second))
-		return waitTime
+		return waitTime, false, nil
 	}
 
 	// 消耗一个令牌
 	r.tokens--
-	// 添加小的随机抖动，使请求不那么规律
-	jitter := time.Duration(rand.Float64() * 200 * float64(time.Millisecond))
-	return jitter
+	return 0, true, nil
+}
+
+func waitContext(ctx context.Context, duration time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if duration <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // min 返回两个整数中的较小值
@@ -101,6 +148,14 @@ var (
 
 // 全局请求控制：检查是否需要等待并设置等待时间
 func waitForNextRequest() {
+	_ = waitForNextRequestContext(context.Background())
+}
+
+func waitForNextRequestContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	antispiderMutex.Lock()
 
 	// 如果在冷却期，检查是否已经过了冷却时间
@@ -114,23 +169,21 @@ func waitForNextRequest() {
 			waitTime := cooldownTime*time.Second - time.Since(lastRequestTime)
 			antispiderMutex.Unlock()
 			fmt.Printf("处于反爬虫冷却期，等待 %.1f 秒...\n", waitTime.Seconds())
-			time.Sleep(waitTime)
-			return
+			return waitContext(ctx, waitTime)
 		}
 	} else {
 		antispiderMutex.Unlock()
 	}
 
-	// 从令牌桶获取令牌，可能会有等待时间
-	waitTime := globalLimiter.getToken()
-	if waitTime > 0 {
-		time.Sleep(waitTime)
+	if err := globalLimiter.acquire(ctx); err != nil {
+		return err
 	}
 
 	// 更新最后请求时间
 	antispiderMutex.Lock()
 	lastRequestTime = time.Now()
 	antispiderMutex.Unlock()
+	return nil
 }
 
 // 记录请求失败
@@ -231,13 +284,26 @@ func ClearAllCache() error {
 }
 
 func withRetry[T any](operation func() (T, error), chapterID string) (result T, err error) {
+	return withRetryContext(context.Background(), func(context.Context) (T, error) {
+		return operation()
+	}, chapterID)
+}
+
+func withRetryContext[T any](ctx context.Context, operation func(context.Context) (T, error), chapterID string) (result T, err error) {
 	backoff := initialBackoff
 	var zero T
 
 	for i := 0; i < maxRetries; i++ {
-		result, err = operation()
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
+
+		result, err = operation(ctx)
 		if err == nil {
 			return result, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return zero, ctxErr
 		}
 
 		// 检查错误是否是反爬虫相关
@@ -259,7 +325,9 @@ func withRetry[T any](operation func() (T, error), chapterID string) (result T, 
 			}
 
 			fmt.Printf("将在 %v 后重试...\n", backoff)
-			time.Sleep(backoff)
+			if waitErr := waitContext(ctx, backoff); waitErr != nil {
+				return zero, waitErr
+			}
 
 			// 指数退避策略
 			backoff = backoff * 2
@@ -278,14 +346,23 @@ func withRetry[T any](operation func() (T, error), chapterID string) (result T, 
 
 // EbookPages 使用默认选项的 EbookPages
 func (s *Service) EbookPages(chapterID, token string, index, count, offset int) (pages *EbookPage, err error) {
-	operation := func() (*EbookPage, error) {
+	return s.EbookPagesContext(context.Background(), chapterID, token, index, count, offset)
+}
+
+func (s *Service) EbookPagesContext(ctx context.Context, chapterID, token string, index, count, offset int) (pages *EbookPage, err error) {
+	operation := func(ctx context.Context) (*EbookPage, error) {
 		// 在请求之前检查并等待合适的时间间隔
 		// 使用全局令牌桶限流器来平衡并发请求速率
-		waitForNextRequest()
+		if err := waitForNextRequestContext(ctx); err != nil {
+			return nil, err
+		}
 
 		// 请求API获取数据
-		body, err := s.reqEbookPages(chapterID, token, index, count, offset)
+		body, err := s.reqEbookPagesContext(ctx, chapterID, token, index, count, offset)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			// 记录请求失败
 			recordRequestFailure(err)
 			return nil, err
@@ -294,8 +371,14 @@ func (s *Service) EbookPages(chapterID, token string, index, count, offset int) 
 
 		var p *EbookPage
 		if err = handleJSONParse(body, &p); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			// 记录请求失败
 			recordRequestFailure(err)
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
@@ -313,7 +396,7 @@ func (s *Service) EbookPages(chapterID, token string, index, count, offset int) 
 		return p, nil
 	}
 
-	return withRetry(operation, chapterID)
+	return withRetryContext(ctx, operation, chapterID)
 }
 
 // EbookDetail get ebook detail

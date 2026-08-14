@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/yann0917/dedao-gui/backend/services"
 	"github.com/yann0917/dedao-gui/backend/utils"
+	"golang.org/x/sync/errgroup"
 )
 
 func EbookDetail(enID string) (detail *services.EbookDetail, err error) {
@@ -131,7 +133,7 @@ func EbookChapterPages(enID, chapterID string) (pages []string, err error) {
 		return
 	}
 
-	pages, err = generateEbookPages(enID, chID, token.Token, 0, 20, 0)
+	pages, err = generateEbookPages(context.Background(), enID, chID, token.Token, 0, 20, 0)
 	return
 }
 
@@ -160,54 +162,160 @@ func EbookPage(ctx context.Context, enID string) (info *services.EbookInfo, svgC
 	if err != nil {
 		return
 	}
-	wgp := utils.NewWaitGroupPool(5)
-	total, curr := len(info.BookInfo.Orders), 0
-	var chapterMap sync.Map
+	total := len(info.BookInfo.Orders)
+	chapterLabels := make(map[string]string, len(info.BookInfo.Toc))
 	for _, ebookToc := range info.BookInfo.Toc {
 		key := ebookToc.Href
 		href := strings.Split(ebookToc.Href, "#")
 		if len(href) > 1 {
 			key = href[0]
 		}
-		chapterMap.Store(key, ebookToc)
+		chapterLabels[key] = ebookToc.Text
 	}
-	for i, order := range info.BookInfo.Orders {
-		var progress Progress
-		progress.Total = total
-		curr++
-		progress.Current = curr
-		progress.Pct = curr * 100 / progress.Total
-		value, ok := chapterMap.Load(order.ChapterID)
-		if ok {
-			progress.Value = value.(utils.EbookToc).Text
-			chapterMap.Delete(order.ChapterID)
-		}
+	coordinator := newChapterProgressCoordinator(total, func(progress Progress) {
 		runtime.EventsEmit(ctx, "ebookDownload", progress)
-		wgp.Add()
-		go func(i int, order services.EbookOrders) {
-			defer func() {
-				wgp.Done()
-			}()
-			index, count, offset := 0, 20, 0
-			svgList, err1 := generateEbookPages(enID, order.ChapterID, token.Token, index, count, offset)
-			if err1 != nil {
-				err = err1
-				return
-			}
+	})
+	svgContent, err = fetchEbookChapters(ctx, info.BookInfo.Orders, 5, func(chapterCtx context.Context, order services.EbookOrders, index int) (*utils.SvgContent, error) {
+		svgList, err := generateEbookPages(chapterCtx, enID, order.ChapterID, token.Token, 0, 20, 0)
+		if err != nil {
+			coordinator.recordFailure(err)
+			return nil, err
+		}
 
-			svgContent = append(svgContent, &utils.SvgContent{
-				Contents:   svgList,
-				ChapterID:  order.ChapterID,
-				PathInEpub: order.PathInEpub,
-				OrderIndex: i,
-			})
-		}(i, order)
-	}
-	wgp.Wait()
+		if err := coordinator.emitSuccess(chapterCtx, chapterLabels[order.ChapterID]); err != nil {
+			return nil, err
+		}
+
+		return &utils.SvgContent{
+			Contents:   svgList,
+			ChapterID:  order.ChapterID,
+			PathInEpub: order.PathInEpub,
+			OrderIndex: index,
+		}, nil
+	})
 	return
 }
 
-func generateEbookPages(enid, chapterID, token string, index, count, offset int) (svgList []string, err error) {
+type chapterFetcher func(context.Context, services.EbookOrders, int) (*utils.SvgContent, error)
+
+type chapterProgressCoordinator struct {
+	total          int
+	emit           func(Progress)
+	mu             sync.Mutex
+	completed      atomic.Int64
+	failure        error
+	beforeEmitHook func()
+}
+
+func newChapterProgressCoordinator(total int, emit func(Progress)) *chapterProgressCoordinator {
+	return &chapterProgressCoordinator{
+		total: total,
+		emit:  emit,
+	}
+}
+
+func (c *chapterProgressCoordinator) recordFailure(err error) {
+	if c == nil || err == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.failure == nil {
+		c.failure = err
+	}
+}
+
+func (c *chapterProgressCoordinator) emitSuccess(ctx context.Context, label string) error {
+	if c == nil {
+		if ctx != nil {
+			return ctx.Err()
+		}
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.failure != nil {
+		return c.failure
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	current := c.completed.Add(1)
+	progress := Progress{
+		Total:   c.total,
+		Current: int(current),
+		Value:   label,
+	}
+	if c.total > 0 {
+		progress.Pct = int(current) * 100 / c.total
+	}
+
+	if c.beforeEmitHook != nil {
+		hook := c.beforeEmitHook
+		c.beforeEmitHook = nil
+		hook()
+	}
+	if err := ctx.Err(); err != nil {
+		c.completed.Add(-1)
+		return err
+	}
+	if c.emit != nil {
+		c.emit(progress)
+	}
+	return nil
+}
+
+func fetchEbookChapters(ctx context.Context, orders []services.EbookOrders, limit int, fetch chapterFetcher) (utils.SvgContents, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be greater than zero")
+	}
+	if fetch == nil {
+		return nil, fmt.Errorf("fetch is required")
+	}
+
+	results := make(utils.SvgContents, len(orders))
+	if len(orders) == 0 {
+		return results, nil
+	}
+
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(limit)
+	for index, order := range orders {
+		index, order := index, order
+		group.Go(func() error {
+			if err := groupCtx.Err(); err != nil {
+				return err
+			}
+
+			result, err := fetch(groupCtx, order, index)
+			if err != nil {
+				return err
+			}
+			if result == nil {
+				return fmt.Errorf("fetch returned nil result for chapter %s", order.ChapterID)
+			}
+
+			results[index] = result
+			return nil
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func generateEbookPages(ctx context.Context, enid, chapterID, token string, index, count, offset int) (svgList []string, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Try to load from cache first
 	if cachedPages, found := services.LoadFromCache(enid, chapterID); found {
 		fmt.Printf("使用缓存内容：%s\n", chapterID)
@@ -215,7 +323,7 @@ func generateEbookPages(enid, chapterID, token string, index, count, offset int)
 	}
 
 	fmt.Printf("下载章节 %s\n", chapterID)
-	pageList, err := getService().EbookPages(chapterID, token, index, count, offset)
+	pageList, err := getService().EbookPagesContext(ctx, chapterID, token, index, count, offset)
 	if err != nil {
 		return
 	}
@@ -226,10 +334,13 @@ func generateEbookPages(enid, chapterID, token string, index, count, offset int)
 	}
 
 	if !pageList.IsEnd {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		index += count
 		count = 20
 		fmt.Printf("下载章节 %s 的更多页面 (索引: %d)\n", chapterID, index)
-		list, err1 := generateEbookPages(enid, chapterID, token, index, count, offset)
+		list, err1 := generateEbookPages(ctx, enid, chapterID, token, index, count, offset)
 		if err1 != nil {
 			err = err1
 			return
@@ -238,6 +349,10 @@ func generateEbookPages(enid, chapterID, token string, index, count, offset int)
 		svgList = append(svgList, list...)
 	} else {
 		fmt.Printf("章节 %s 下载完成 (共 %d 页)\n", chapterID, len(svgList))
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// Save to cache
