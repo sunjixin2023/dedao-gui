@@ -184,6 +184,8 @@ odobUser.user = new services.OdobUser()
 
 let alive = true
 let expiredSessionHandled = false
+let requestGeneration = 0
+let verificationNoticeGeneration = -1
 
 const hasUsableUser = (candidate: Partial<services.User> | null | undefined) => {
     return Boolean(
@@ -249,6 +251,14 @@ const resetFreshUser = () => {
     Object.assign(user, new services.User())
 }
 
+const invalidateRequests = () => {
+    requestGeneration += 1
+}
+
+const isCurrentGeneration = (generation: number) => {
+    return alive && generation === requestGeneration
+}
+
 const showWarning = (message: string) => {
     if (!alive || !message) {
         return
@@ -260,37 +270,46 @@ const showWarning = (message: string) => {
     })
 }
 
-const handleSessionError = async (error: unknown) => {
+const handleSessionError = async (error: unknown, generation: number) => {
     const classification = classifySessionErrorMessage(String(error ?? ''))
     if (!classification) {
         return false
     }
 
     if (classification === 'verification') {
+        if (!isCurrentGeneration(generation) || verificationNoticeGeneration === generation) {
+            return true
+        }
+        verificationNoticeGeneration = generation
         const message = await store.classifySessionError(error)
-        showWarning(message || '需要验证，请先在得到官网完成验证码后重试')
+        if (isCurrentGeneration(generation)) {
+            showWarning(message || '需要验证，请先在得到官网完成验证码后重试')
+        }
         return true
     }
 
     if (!expiredSessionHandled) {
         expiredSessionHandled = true
+        invalidateRequests()
         const message = await store.classifySessionError(error)
-        resetFreshUser()
-        showWarning(message || '登录已失效，请重新扫码登录')
         if (alive) {
+            resetFreshUser()
+            showWarning(message || '登录已失效，请重新扫码登录')
             pushByName(ROUTE_NAMES.LOGIN)
         }
         return true
     }
 
-    resetFreshUser()
+    if (alive) {
+        resetFreshUser()
+    }
     return true
 }
 
-const loadUserInfo = async () => {
+const loadUserInfo = async (generation: number) => {
     try {
         const result = await UserInfo()
-        if (!alive) {
+        if (!isCurrentGeneration(generation) || !store.loggedIn) {
             return
         }
 
@@ -298,7 +317,10 @@ const loadUserInfo = async () => {
         Object.assign(user, nextUser)
         store.acceptLogin(nextUser)
     } catch (error) {
-        if (await handleSessionError(error)) {
+        if (!isCurrentGeneration(generation)) {
+            return
+        }
+        if (await handleSessionError(error, generation)) {
             return
         }
 
@@ -306,16 +328,19 @@ const loadUserInfo = async () => {
     }
 }
 
-const loadEbookUserInfo = async () => {
+const loadEbookUserInfo = async (generation: number) => {
     try {
         const result = await EbookUserInfo()
-        if (!alive) {
+        if (!isCurrentGeneration(generation)) {
             return
         }
 
         Object.assign(ebookUser, result)
     } catch (error) {
-        if (await handleSessionError(error)) {
+        if (!isCurrentGeneration(generation)) {
+            return
+        }
+        if (await handleSessionError(error, generation)) {
             return
         }
 
@@ -323,17 +348,20 @@ const loadEbookUserInfo = async () => {
     }
 }
 
-const loadOdobUserInfo = async () => {
+const loadOdobUserInfo = async (generation: number) => {
     try {
         const result = await OdobUserInfo()
-        if (!alive) {
+        if (!isCurrentGeneration(generation)) {
             return
         }
 
         Object.assign(odobUser, result)
         odobUser.user = result?.user ? Object.assign(new services.OdobUser(), result.user) : new services.OdobUser()
     } catch (error) {
-        if (await handleSessionError(error)) {
+        if (!isCurrentGeneration(generation)) {
+            return
+        }
+        if (await handleSessionError(error, generation)) {
             return
         }
 
@@ -342,6 +370,7 @@ const loadOdobUserInfo = async () => {
 }
 
 const handleLogout = async () => {
+    invalidateRequests()
     try {
         await store.logout()
         ElMessage.success('已退出登录')
@@ -352,15 +381,20 @@ const handleLogout = async () => {
 
 onMounted(() => {
     alive = true
+    expiredSessionHandled = false
+    const generation = requestGeneration + 1
+    requestGeneration = generation
+    verificationNoticeGeneration = -1
     void Promise.allSettled([
-        loadUserInfo(),
-        loadEbookUserInfo(),
-        loadOdobUserInfo(),
+        loadUserInfo(generation),
+        loadEbookUserInfo(generation),
+        loadOdobUserInfo(generation),
     ])
 })
 
 onBeforeUnmount(() => {
     alive = false
+    invalidateRequests()
 })
 
 </script>
