@@ -2,11 +2,11 @@ package config
 
 import (
 	"errors"
-	"io"
-	"log"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/yann0917/dedao-gui/backend/services"
@@ -29,9 +29,8 @@ var (
 func init() {
 	Instance = new(ConfigsData)
 	Instance.configFilePath = configFilePath
-	if err := Instance.init(); err != nil {
-		log.Fatal(err)
-	}
+	Instance.fs = osConfigFS{}
+	Instance.initErr = Instance.init()
 }
 
 // DedaoUsers user
@@ -44,9 +43,12 @@ type ConfigsData struct {
 	Users          DedaoUsers
 	activeUser     *Dedao
 	configFilePath string
-	configFile     *os.File
 	fileMu         sync.Mutex
 	service        *services.Service
+	recovery       *RecoveryInfo
+	initErr        error
+	fs             configFS
+	now            func() time.Time
 }
 
 type configJSONExport struct {
@@ -54,15 +56,64 @@ type configJSONExport struct {
 	Users     DedaoUsers
 }
 
+type RecoveryInfo struct {
+	BackupPath string `json:"backupPath"`
+	Message    string `json:"message"`
+}
+
+type configFS interface {
+	MkdirAll(string, os.FileMode) error
+	ReadFile(string) ([]byte, error)
+	CreateTemp(string, string) (*os.File, error)
+	Rename(string, string) error
+	Remove(string) error
+	Stat(string) (os.FileInfo, error)
+}
+
+type osConfigFS struct{}
+
+func (osConfigFS) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func (osConfigFS) ReadFile(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+func (osConfigFS) CreateTemp(dir, pattern string) (*os.File, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
+func (osConfigFS) Rename(oldPath, newPath string) error {
+	return os.Rename(oldPath, newPath)
+}
+
+func (osConfigFS) Remove(path string) error {
+	return os.Remove(path)
+}
+
+func (osConfigFS) Stat(path string) (os.FileInfo, error) {
+	return os.Stat(path)
+}
+
+func (c *ConfigsData) Recovery() *RecoveryInfo { return c.recovery }
+
+func (c *ConfigsData) InitError() error { return c.initErr }
+
 // Init 初始化配置
 func (c *ConfigsData) init() error {
+	c.ensureFS()
+	c.initErr = nil
+
 	if c.configFilePath == "" {
-		return errors.New("配置文件未找到")
+		c.initErr = errors.New("配置文件未找到")
+		return c.initErr
 	}
 
 	// 从配置文件中加载配置
 	err := c.loadConfigFromFile()
 	if err != nil {
+		c.initErr = err
 		return err
 	}
 
@@ -112,11 +163,6 @@ func (c *ConfigsData) initActiveUser() error {
 
 // Save 保存配置
 func (c *ConfigsData) Save() error {
-	err := c.lazyOpenConfigFile()
-	if err != nil {
-		return err
-	}
-
 	c.fileMu.Lock()
 	defer c.fileMu.Unlock()
 
@@ -127,99 +173,77 @@ func (c *ConfigsData) Save() error {
 	}
 
 	data, err := jsoniter.MarshalIndent(conf, "", " ")
-
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	// 减掉多余的部分
-	err = c.configFile.Truncate(int64(len(data)))
-	if err != nil {
-		// fmt.Println(err)
-		return err
-	}
-
-	_, err = c.configFile.Seek(0, io.SeekStart)
-	if err != nil {
-		// fmt.Println(err)
-		return err
-	}
-
-	_, err = c.configFile.Write(data)
-	if err != nil {
-		// fmt.Println(err)
-		return err
-	}
-
-	return nil
+	return c.writeAtomic(data)
 }
 
 func (c *ConfigsData) loadConfigFromFile() error {
-	err := c.lazyOpenConfigFile()
-	if err != nil {
+	c.ensureFS()
+
+	if err := c.fs.MkdirAll(filepath.Dir(c.configFilePath), 0o700); err != nil {
 		return err
 	}
 
-	info, err := c.configFile.Stat()
+	data, err := c.fs.ReadFile(c.configFilePath)
 	if err != nil {
-		return err
+		if errors.Is(err, os.ErrNotExist) {
+			restored, restoreErr := c.restoreBackupIfPresent()
+			if restoreErr != nil {
+				return restoreErr
+			}
+			if restored {
+				data, err = c.fs.ReadFile(c.configFilePath)
+				if err != nil {
+					return err
+				}
+			} else {
+				return c.Save()
+			}
+		} else {
+			return err
+		}
 	}
 
-	if info.Size() == 0 {
+	if len(data) == 0 {
 		return c.Save()
 	}
 
-	c.fileMu.Lock()
-	defer c.fileMu.Unlock()
-
-	_, err = c.configFile.Seek(0, io.SeekStart)
-	if err != nil {
-		return nil
-	}
-
-	// 从配置文件中加载配置
-	decoder := jsoniter.NewDecoder(c.configFile)
 	var conf configJSONExport
-	decoder.Decode(&conf)
+	if err := jsoniter.Unmarshal(data, &conf); err != nil {
+		return c.recoverCorruptFile(err)
+	}
 
 	c.AcitveUID = conf.AcitveUID
 	c.Users = conf.Users
+	c.recovery = nil
 	return nil
 }
 
-func (c *ConfigsData) lazyOpenConfigFile() (err error) {
-	if c.configFile != nil {
-		return nil
+func (c *ConfigsData) restoreBackupIfPresent() (bool, error) {
+	backupPath := c.configFilePath + ".bak"
+	if _, err := c.fs.Stat(backupPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
-	c.fileMu.Lock()
-	os.MkdirAll(filepath.Dir(c.configFilePath), 0700)
-	c.configFile, err = os.OpenFile(c.configFilePath, os.O_CREATE|os.O_RDWR, 0600)
-	c.fileMu.Unlock()
 
-	if err != nil {
-		if os.IsPermission(err) {
-			return
-		}
-		if os.IsExist(err) {
-			return
-		}
-		return
+	if err := c.fs.Rename(backupPath, c.configFilePath); err != nil {
+		return false, fmt.Errorf("restore backup config: %w", err)
 	}
-	return
+
+	return true, nil
 }
 
 func (c *ConfigsData) DeleteConfigFile() (err error) {
-	c.fileMu.Lock()
-	if c.configFile != nil {
-		_ = c.configFile.Close()
-		c.configFile = nil
-	}
-	c.fileMu.Unlock()
-
 	if c.configFilePath == "" {
 		return nil
 	}
-	err = os.Remove(c.configFilePath)
+	c.ensureFS()
+	err = c.fs.Remove(c.configFilePath)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -242,9 +266,162 @@ func (c *ConfigsData) Reset() error {
 func New(configFilePath string) *ConfigsData {
 	c := &ConfigsData{
 		configFilePath: configFilePath,
+		fs:             osConfigFS{},
+		now:            time.Now,
 	}
 
 	return c
+}
+
+func (c *ConfigsData) ensureFS() {
+	if c.fs == nil {
+		c.fs = osConfigFS{}
+	}
+	if c.now == nil {
+		c.now = time.Now
+	}
+}
+
+func (c *ConfigsData) writeAtomic(data []byte) error {
+	c.ensureFS()
+
+	dir := filepath.Dir(c.configFilePath)
+	if err := c.fs.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+
+	tmpFile, err := c.fs.CreateTemp(dir, Name+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+
+	if err := tmpFile.Chmod(0o600); err != nil {
+		return c.closeAndRemoveTemp(tmpFile, tmpPath, err, "chmod temp config")
+	}
+
+	if _, err := tmpFile.Write(data); err != nil {
+		return c.closeAndRemoveTemp(tmpFile, tmpPath, err, "write temp config")
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		return c.closeAndRemoveTemp(tmpFile, tmpPath, err, "sync temp config")
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		if removeErr := c.fs.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return fmt.Errorf("close temp config: %w (cleanup temp: %v)", err, removeErr)
+		}
+		return fmt.Errorf("close temp config: %w", err)
+	}
+
+	backupPath := c.configFilePath + ".bak"
+	hasBackup := false
+	if _, err := c.fs.Stat(c.configFilePath); err == nil {
+		if err := c.fs.Remove(backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if cleanupErr := c.fs.Remove(tmpPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				return fmt.Errorf("remove stale backup: %w (cleanup temp: %v)", err, cleanupErr)
+			}
+			return fmt.Errorf("remove stale backup: %w", err)
+		}
+		if err := c.fs.Rename(c.configFilePath, backupPath); err != nil {
+			if cleanupErr := c.fs.Remove(tmpPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				return fmt.Errorf("backup existing config: %w (cleanup temp: %v)", err, cleanupErr)
+			}
+			return fmt.Errorf("backup existing config: %w", err)
+		}
+		hasBackup = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		if cleanupErr := c.fs.Remove(tmpPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			return fmt.Errorf("stat existing config: %w (cleanup temp: %v)", err, cleanupErr)
+		}
+		return fmt.Errorf("stat existing config: %w", err)
+	}
+
+	if err := c.fs.Rename(tmpPath, c.configFilePath); err != nil {
+		restoreErr := error(nil)
+		if hasBackup {
+			restoreErr = c.fs.Rename(backupPath, c.configFilePath)
+		}
+		cleanupErr := c.fs.Remove(tmpPath)
+		if cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			if restoreErr != nil {
+				return fmt.Errorf("replace config: %w (restore backup: %v, cleanup temp: %v)", err, restoreErr, cleanupErr)
+			}
+			return fmt.Errorf("replace config: %w (cleanup temp: %v)", err, cleanupErr)
+		}
+		if restoreErr != nil {
+			return fmt.Errorf("replace config: %w (restore backup: %v)", err, restoreErr)
+		}
+		return err
+	}
+
+	if hasBackup {
+		if err := c.fs.Remove(backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove backup config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (c *ConfigsData) closeAndRemoveTemp(tmpFile *os.File, tmpPath string, originalErr error, op string) error {
+	closeErr := tmpFile.Close()
+	removeErr := c.fs.Remove(tmpPath)
+
+	if closeErr != nil && removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		return fmt.Errorf("%s: %w (close temp: %v, cleanup temp: %v)", op, originalErr, closeErr, removeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("%s: %w (close temp: %v)", op, originalErr, closeErr)
+	}
+	if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		return fmt.Errorf("%s: %w (cleanup temp: %v)", op, originalErr, removeErr)
+	}
+	return fmt.Errorf("%s: %w", op, originalErr)
+}
+
+func (c *ConfigsData) recoverCorruptFile(decodeErr error) error {
+	c.ensureFS()
+
+	backupPath, err := c.nextCorruptBackupPath()
+	if err != nil {
+		return fmt.Errorf("choose corrupt backup path: %w", err)
+	}
+	if err := c.fs.Rename(c.configFilePath, backupPath); err != nil {
+		return fmt.Errorf("backup corrupt config: %w", err)
+	}
+
+	c.AcitveUID = ""
+	c.Users = DedaoUsers{}
+	c.activeUser = nil
+	c.service = nil
+	c.recovery = &RecoveryInfo{
+		BackupPath: backupPath,
+		Message:    "配置已备份，需要重新登录",
+	}
+
+	if err := c.Save(); err != nil {
+		return fmt.Errorf("create clean config after corrupt config recovery: %w", errors.Join(decodeErr, err))
+	}
+
+	return nil
+}
+
+func (c *ConfigsData) nextCorruptBackupPath() (string, error) {
+	base := c.configFilePath + ".corrupt-" + c.now().UTC().Format("20060102T150405.000000000Z")
+	for attempt := 0; ; attempt++ {
+		candidate := base
+		if attempt > 0 {
+			candidate = fmt.Sprintf("%s-%d", base, attempt)
+		}
+		if _, err := c.fs.Stat(candidate); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return candidate, nil
+			}
+			return "", err
+		}
+	}
 }
 
 // GetConfigDir config file dir
