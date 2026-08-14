@@ -3,6 +3,67 @@
     <div class="home-ambient home-ambient-left"></div>
     <div class="home-ambient home-ambient-right"></div>
 
+    <section v-if="loading && !hasHomeContent" class="home-feedback-shell">
+      <div class="home-feedback-panel">
+        <el-skeleton animated class="home-skeleton">
+          <template #template>
+            <div class="home-skeleton-hero">
+              <div class="el-skeleton__item skeleton-kicker"></div>
+              <div class="el-skeleton__item skeleton-title"></div>
+              <div class="el-skeleton__item skeleton-line"></div>
+              <div class="el-skeleton__item skeleton-line skeleton-line-short"></div>
+              <div class="home-skeleton-actions">
+                <div class="el-skeleton__item skeleton-button"></div>
+                <div class="el-skeleton__item skeleton-button"></div>
+                <div class="el-skeleton__item skeleton-button"></div>
+              </div>
+            </div>
+            <div class="home-skeleton-grid">
+              <div class="home-skeleton-card" v-for="index in 6" :key="`skeleton-${index}`">
+                <div class="el-skeleton__item skeleton-card-cover"></div>
+                <div class="home-skeleton-card-body">
+                  <div class="el-skeleton__item skeleton-card-title"></div>
+                  <div class="el-skeleton__item skeleton-line"></div>
+                  <div class="el-skeleton__item skeleton-line skeleton-line-short"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </el-skeleton>
+      </div>
+    </section>
+
+    <section v-else-if="loadError && !hasHomeContent" class="home-feedback-shell">
+      <div class="home-feedback-panel">
+        <el-alert
+          class="home-error-alert"
+          type="error"
+          :closable="false"
+          show-icon
+          title="首页数据加载失败"
+          :description="loadError"
+        />
+        <el-result class="home-error-result" icon="error" title="暂时无法打开首页" :sub-title="loadError">
+          <template #extra>
+            <el-button type="primary" round @click="loadHome">重新加载</el-button>
+          </template>
+        </el-result>
+      </div>
+    </section>
+
+    <template v-else>
+      <section v-if="loadError" class="home-inline-feedback">
+        <el-alert type="warning" :closable="false" show-icon>
+          <template #title>首页数据未完全刷新</template>
+          <template #default>
+            <div class="home-inline-feedback-body">
+              <span>{{ loadError }}</span>
+              <el-button type="primary" round size="small" @click="loadHome">重新加载</el-button>
+            </div>
+          </template>
+        </el-alert>
+      </section>
+
     <section class="learning-deck">
       <div class="deck-main">
         <p class="deck-kicker">DEDao Learning Hub</p>
@@ -375,6 +436,7 @@
         </button>
       </div>
     </div>
+    </template>
   </div>
 
   <QrLogin
@@ -397,7 +459,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onBeforeMount, onMounted, computed, watch } from "vue";
+import { ref, reactive, onMounted, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { VideoPlay, Headset, Reading } from '@element-plus/icons-vue'
 import {
@@ -424,6 +486,7 @@ const pStore = playerStore();
 const store = userStore();
 
 const loading = ref(true);
+const loadError = ref("");
 const page = ref(0);
 const total = ref(0);
 const pageSize = ref(4);
@@ -485,10 +548,28 @@ const audioLaneSummary = computed(() => {
   }
   return "进入听书页可一键创建连播队列";
 });
-const userInfoRequested = ref(false);
+const hasHomeContent = computed(() => {
+  return Boolean(
+    categoryList.value.length ||
+    bannerList.value.length ||
+    moduleList.value.length ||
+    freeResourceList.list?.length ||
+    ebookContentList.product_list?.length ||
+    courseContentList.product_list?.length
+  );
+});
+const userInfoLoaded = ref(false);
+let userInfoRequest: Promise<boolean> | null = null;
+const HOME_EBOOK_PAGE_SIZE = 10;
+const HOME_COURSE_PAGE_SIZE = 4;
+
+const normalizeErrorMessage = (error: unknown) => {
+  const message = String(error || "").trim();
+  return message || "请检查网络连接后重试";
+};
 
 const showGenericError = (error: unknown) => {
-  const message = String(error || "").trim();
+  const message = normalizeErrorMessage(error);
   if (!message) return;
   ElMessage({
     message,
@@ -496,18 +577,49 @@ const showGenericError = (error: unknown) => {
   });
 };
 
-const handleSessionError = async (error: unknown) => {
+const handleSessionError = async (
+  error: unknown,
+  options: { notify?: boolean } = {}
+) => {
   const raw = String(error || "");
   const sessionMessage = await store.classifySessionError(error);
-  if (!sessionMessage) return false;
-  ElMessage({
-    message: sessionMessage,
-    type: "warning",
-  });
+  if (!sessionMessage) return "";
+  if (options.notify !== false) {
+    ElMessage({
+      message: sessionMessage,
+      type: "warning",
+    });
+  }
   if (/\b(401|403)\b/.test(raw)) {
     pushByName(ROUTE_NAMES.LOGIN);
   }
-  return true;
+  return sessionMessage;
+};
+
+const setLoadErrorFromError = async (error: unknown) => {
+  const sessionMessage = await handleSessionError(error, { notify: false });
+  loadError.value = sessionMessage || normalizeErrorMessage(error);
+};
+
+const settleOrThrow = async <T extends readonly unknown[]>(
+  requests: { [K in keyof T]: Promise<T[K]> }
+): Promise<T> => {
+  const settled = await Promise.allSettled(requests);
+  const rejected = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (rejected) {
+    throw rejected.reason;
+  }
+  return settled.map(
+    (result) => (result as PromiseFulfilledResult<unknown>).value
+  ) as unknown as T;
+};
+
+const resetUserInfoState = () => {
+  userInfoLoaded.value = false;
+  userInfoRequest = null;
+  Object.assign(user, new services.User());
 };
 
 const loadSunflowerContent = async (enid: string, nType: number, size = pageSize.value) => {
@@ -526,80 +638,101 @@ const loadSunflowerContent = async (enid: string, nType: number, size = pageSize
   }
 };
 
-const loadSunflowerSection = async (nType: number, size: number) => {
+const getUserInfo = async () => {
+  const result = await UserInfo();
+  Object.assign(user, result);
+  store.acceptLogin(Object.assign(new services.User(), result));
+  return true;
+};
+
+const ensureUserInfo = async () => {
+  if (!store.loggedIn) {
+    resetUserInfoState();
+    return true;
+  }
+  if (userInfoLoaded.value) return true;
+  if (userInfoRequest) return userInfoRequest;
+
+  userInfoRequest = getUserInfo()
+    .then(() => {
+      userInfoLoaded.value = true;
+      return true;
+    })
+    .catch(async (error) => {
+      await setLoadErrorFromError(error);
+      throw error;
+    })
+    .finally(() => {
+      userInfoRequest = null;
+    });
+
+  return userInfoRequest;
+};
+
+const loadHome = async () => {
+  loading.value = true;
+  loadError.value = "";
   try {
-    const result = await SunflowerLabelList(nType);
-    const targetList = nType === 2 ? ebookLabelList : courseLabelList;
-    const targetNav = nType === 2 ? currentEbook : currentCourse;
-    Object.assign(targetList, result);
-    if (targetList.list?.[0]) {
-      Object.assign(targetNav, targetList.list[0]);
+    const [homeState, ebookLabels, courseLabels, resources] = await settleOrThrow([
+      GetHomeInitialState(),
+      SunflowerLabelList(2),
+      SunflowerLabelList(4),
+      SunflowerResourceList(),
+    ] as const);
+
+    Object.assign(initial, homeState);
+    Object.assign(ebookLabelList, ebookLabels);
+    Object.assign(courseLabelList, courseLabels);
+    Object.assign(freeResourceList, resources);
+
+    if (ebookLabels.list?.[0]) {
+      Object.assign(currentEbook, ebookLabels.list[0]);
     }
-    return await loadSunflowerContent("", nType, size);
+    if (courseLabels.list?.[0]) {
+      Object.assign(currentCourse, courseLabels.list[0]);
+    }
+
+    const [ebooks, courses] = await settleOrThrow([
+      SunflowerLabelContent("", 2, page.value, HOME_EBOOK_PAGE_SIZE),
+      SunflowerLabelContent("", 4, page.value, HOME_COURSE_PAGE_SIZE),
+      store.sessionLoaded && store.loggedIn ? ensureUserInfo() : Promise.resolve(true),
+    ] as const);
+
+    Object.assign(ebookContentList, ebooks);
+    Object.assign(courseContentList, courses);
+    idxEbookLabel.value = 0;
+    idxCourseLabel.value = 0;
   } catch (error) {
-    if (await handleSessionError(error)) return false;
-    showGenericError(error);
-    return false;
+    await setLoadErrorFromError(error);
+  } finally {
+    loading.value = false;
   }
 };
 
-onBeforeMount(() => {
-  // 分类
-  GetHomeInitialState()
-    .then((state) => {
-      Object.assign(initial, state);
-    })
-    .catch(async (error) => {
-      if (await handleSessionError(error)) return;
-      showGenericError(error);
-    });
-});
+watch(
+  () => store.loggedIn,
+  (loggedIn) => {
+    if (!loggedIn) {
+      resetUserInfoState();
+    }
+  }
+);
 
 watch(
   () => [store.sessionLoaded, store.loggedIn] as const,
   async ([sessionLoaded, loggedIn]) => {
-    if (!sessionLoaded || !loggedIn || userInfoRequested.value) return;
-    userInfoRequested.value = true;
-    const ok = await getUserInfo();
-    if (!ok) {
-      userInfoRequested.value = false;
+    if (!sessionLoaded || !loggedIn) return;
+    try {
+      await ensureUserInfo();
+    } catch {
     }
   },
   { immediate: true }
 );
 
-onMounted(async () => {
-  await Promise.all([
-    loadSunflowerSection(2, 10),
-    loadSunflowerSection(4, 4),
-    getFreeResourceList(),
-  ]);
+onMounted(() => {
+  void loadHome();
 });
-
-const getFreeResourceList = async () => {
-  try {
-    const list = await SunflowerResourceList();
-    Object.assign(freeResourceList, list);
-    return true;
-  } catch (error) {
-    if (await handleSessionError(error)) return false;
-    showGenericError(error);
-    return false;
-  }
-};
-
-const getUserInfo = async () => {
-  try {
-    const result = await UserInfo();
-    Object.assign(user, result);
-    store.acceptLogin(Object.assign(new services.User(), result));
-    return true;
-  } catch (error) {
-    if (await handleSessionError(error)) return false;
-    showGenericError(error);
-    return false;
-  }
-};
 
 const goToCourseList = () => {
   pushByName(ROUTE_NAMES.COURSE);
@@ -837,6 +970,112 @@ const gotoCategory = (item: any, label_id: string) => {
 
 .home-container-wrapper::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
+}
+
+.home-feedback-shell {
+  position: relative;
+  z-index: 1;
+}
+
+.home-feedback-panel {
+  padding: clamp(18px, 2vw, 28px);
+  border-radius: 20px;
+  background:
+    linear-gradient(140deg, color-mix(in srgb, var(--hero-gradient-1) 28%, transparent) 0%, transparent 58%),
+    linear-gradient(220deg, color-mix(in srgb, var(--hero-gradient-2) 24%, transparent) 0%, transparent 62%),
+    color-mix(in srgb, var(--surface-glass) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-soft) 78%, transparent);
+  box-shadow: 0 18px 34px rgba(12, 20, 36, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.home-inline-feedback {
+  position: relative;
+  z-index: 2;
+}
+
+.home-inline-feedback-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.home-error-alert {
+  margin-bottom: 16px;
+}
+
+.home-error-result {
+  padding: 12px 0 0;
+}
+
+.home-skeleton-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 0 24px;
+}
+
+.home-skeleton-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.home-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.home-skeleton-card {
+  overflow: hidden;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-color) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-soft) 70%, transparent);
+}
+
+.home-skeleton-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.skeleton-kicker {
+  width: 140px;
+  height: 14px;
+}
+
+.skeleton-title {
+  width: min(460px, 72%);
+  height: 38px;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: 14px;
+}
+
+.skeleton-line-short {
+  width: min(480px, 64%);
+}
+
+.skeleton-button {
+  width: 116px;
+  height: 36px;
+}
+
+.skeleton-card-cover {
+  display: block;
+  width: 100%;
+  height: 180px;
+}
+
+.skeleton-card-title {
+  width: 72%;
+  height: 20px;
 }
 
 .home-ambient {
@@ -1817,6 +2056,15 @@ const gotoCategory = (item: any, label_id: string) => {
     gap: 14px;
   }
 
+  .home-inline-feedback-body {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .home-skeleton-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .home-ambient {
     display: none;
   }
@@ -1908,6 +2156,15 @@ const gotoCategory = (item: any, label_id: string) => {
   .fallback-chip {
     width: 100%;
     justify-content: center;
+  }
+
+  .home-skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .skeleton-title,
+  .skeleton-line-short {
+    width: 100%;
   }
 
   .course-grid,
