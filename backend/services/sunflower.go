@@ -319,11 +319,11 @@ func (s *Service) GetHomeInitialState() (state HomeInitState, err error) {
 	}
 	if resp.IsSuccess() {
 		SetCookie = resp.Header().Values("Set-Cookie")
-		cookies := strings.Split(strings.Join(SetCookie, "; "), "; ")
-		for _, v := range cookies {
-			item := strings.Split(v, "=")
-			if len(item) > 1 && item[0] == "csrfToken" {
-				CsrfToken = item[1]
+		CsrfToken = ""
+		for _, cookie := range resp.Cookies() {
+			if cookie.Name == "csrfToken" {
+				CsrfToken = cookie.Value
+				break
 			}
 		}
 		// 匹配 <script> window.__INITIAL_STATE__=

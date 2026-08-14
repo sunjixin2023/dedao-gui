@@ -66,82 +66,29 @@ type CookieOptions struct {
 	SID           string `json:"_sid"`
 	AcwTc         string `json:"acw_tc"`
 	AliyungfTc    string `json:"aliyungf_tc"`
-	CookieStr     string `json:"cookieStr"`
+}
+
+type cookieFieldSpec struct {
+	fieldName string
+	wireName  string
+	domain    string
 }
 
 // NewService new service
 func NewService(co *CookieOptions) *Service {
+	if co == nil {
+		co = &CookieOptions{}
+	}
+
 	var cookies []*http.Cookie
-	if co.GAT != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "GAT",
-			Value:  co.GAT,
-			Domain: "." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.ISID != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "ISID",
-			Value:  co.ISID,
-			Domain: "." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.GuardDeviceID != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "_guard_device_id",
-			Value:  co.GuardDeviceID,
-			Domain: "www." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.SID != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "_sid",
-			Value:  co.SID,
-			Domain: "www." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.AcwTc != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "acw_tc",
-			Value:  co.AcwTc,
-			Domain: "www." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.Iget != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "iget",
-			Value:  co.Iget,
-			Domain: "www." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.Token != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "token",
-			Value:  co.Token,
-			Domain: "www." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.CsrfToken != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "csrfToken",
-			Value:  co.CsrfToken,
-			Domain: "www." + dedaoCommURL.Host,
-		})
-	}
-
-	if co.AliyungfTc != "" {
-		cookies = append(cookies, &http.Cookie{
-			Name:   "aliyungf_tc",
-			Value:  co.AliyungfTc,
-			Domain: "www." + dedaoCommURL.Host,
-		})
+	for _, spec := range cookieFieldSpecs() {
+		if value := cookieFieldValue(co, spec); value != "" {
+			cookies = append(cookies, &http.Cookie{
+				Name:   spec.wireName,
+				Value:  value,
+				Domain: spec.domain,
+			})
+		}
 	}
 
 	client := resty.New()
@@ -213,59 +160,179 @@ func ParseCookies(cookie string, v interface{}) (err error) {
 	if cookie == "" {
 		return errors.New("cookie is empty")
 	}
+	parsedExact, parsedInsensitive := parseCookiePairs(cookie)
+
+	switch target := v.(type) {
+	case *CookieOptions:
+		if target == nil {
+			return errors.New("v must be *CookieOptions or *map[string]string")
+		}
+
+		value := reflect.ValueOf(target).Elem()
+		for _, spec := range cookieFieldSpecs() {
+			if parsedValue, ok := parsedInsensitive[strings.ToLower(spec.wireName)]; ok {
+				field := value.FieldByName(spec.fieldName)
+				if field.IsValid() && field.CanSet() && field.Kind() == reflect.String {
+					field.SetString(parsedValue)
+				}
+			}
+		}
+		return nil
+	case *map[string]string:
+		if target == nil {
+			return errors.New("v must be *CookieOptions or *map[string]string")
+		}
+		result := make(map[string]string, len(parsedExact))
+		for key, value := range parsedExact {
+			result[key] = value
+		}
+		*target = result
+		return nil
+	default:
+		return errors.New("v must be *CookieOptions or *map[string]string")
+	}
+}
+
+func parseCookiePairs(cookie string) (map[string]string, map[string]string) {
 	list := strings.Split(cookie, ";")
-	cookieM := make(map[string]string, len(list))
+	parsedExact := make(map[string]string, len(list))
+	parsedInsensitive := make(map[string]string, len(list))
+	lastSeenKeyByLower := make(map[string]string, len(list))
 	for _, item := range list {
-		parts := strings.Split(item, "=")
-		if len(parts) > 1 {
-			if parts[1] != "" {
-				cookieM[strings.TrimSpace(parts[0])] = parts[1]
-			}
-		}
-	}
-
-	// 创建大小写不敏感的 map（为了兼容 mapstructure 的行为）
-	cookieMInsensitive := make(map[string]string)
-	for k, v := range cookieM {
-		cookieMInsensitive[strings.ToLower(k)] = v
-	}
-
-	// 使用反射将 map 的值赋给结构体
-	value := reflect.ValueOf(v)
-	if value.Kind() != reflect.Ptr || value.Elem().Kind() != reflect.Struct {
-		return errors.New("v must be a pointer to struct")
-	}
-
-	elem := value.Elem()
-	structType := elem.Type()
-
-	for i := 0; i < elem.NumField(); i++ {
-		field := elem.Field(i)
-		if !field.CanSet() {
+		name, value, found := strings.Cut(strings.TrimSpace(item), "=")
+		if !found || name == "" || value == "" {
 			continue
 		}
 
-		fieldType := structType.Field(i)
+		lowerName := strings.ToLower(name)
+		if previousKey, ok := lastSeenKeyByLower[lowerName]; ok && previousKey != name {
+			delete(parsedExact, previousKey)
+		}
+		lastSeenKeyByLower[lowerName] = name
+		parsedExact[name] = value
+		parsedInsensitive[lowerName] = value
+	}
+	return parsedExact, parsedInsensitive
+}
 
-		// 获取 json tag
-		tag := fieldType.Tag.Get("json")
-		if tag == "" || tag == "-" {
+// CookieHeaderFromSetCookies converts Set-Cookie headers to a Cookie header.
+func CookieHeaderFromSetCookies(values []string) (string, error) {
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
 			continue
 		}
-
-		// 处理逗号后面的选项
-		jsonName := strings.Split(tag, ",")[0]
-		if jsonName == "" {
-			jsonName = fieldType.Name
-		}
-
-		// 查找 map 中的值（大小写不敏感）
-		if mapValue, ok := cookieMInsensitive[strings.ToLower(jsonName)]; ok {
-			if field.Kind() == reflect.String {
-				field.SetString(mapValue)
-			}
+		response := &http.Response{Header: make(http.Header)}
+		response.Header.Add("Set-Cookie", value)
+		cookies := response.Cookies()
+		if len(cookies) != 1 || cookies[0] == nil || strings.TrimSpace(cookies[0].Name) == "" {
+			return "", errors.New("invalid Set-Cookie header")
 		}
 	}
 
-	return nil
+	pairs := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		response := &http.Response{Header: make(http.Header)}
+		response.Header.Add("Set-Cookie", value)
+		cookie := response.Cookies()[0]
+		spec, ok := cookieFieldSpecByName(cookie.Name)
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, spec.wireName+"="+cookie.Value)
+	}
+	return strings.Join(pairs, "; "), nil
+}
+
+// MergeCookieHeaders applies updates over existing cookies and serializes known fields in stable order.
+func MergeCookieHeaders(existing, update string) string {
+	merged := make(map[string]string)
+	mergeCookieHeaderInto(merged, existing)
+	mergeCookieHeaderInto(merged, update)
+
+	pairs := make([]string, 0, len(cookieOptionNames()))
+	for _, name := range cookieOptionNames() {
+		if value := merged[strings.ToLower(name)]; value != "" {
+			pairs = append(pairs, name+"="+value)
+		}
+	}
+	return strings.Join(pairs, "; ")
+}
+
+// CookieMap returns the configured cookies as name/value pairs.
+func CookieMap(options *CookieOptions) map[string]string {
+	result := make(map[string]string)
+	if options == nil {
+		return result
+	}
+	for _, spec := range cookieFieldSpecs() {
+		if value := cookieFieldValue(options, spec); value != "" {
+			result[spec.wireName] = value
+		}
+	}
+	return result
+}
+
+func mergeCookieHeaderInto(dest map[string]string, header string) {
+	if strings.TrimSpace(header) == "" {
+		return
+	}
+
+	var parsed map[string]string
+	if err := ParseCookies(header, &parsed); err != nil {
+		return
+	}
+	for key, value := range parsed {
+		spec, ok := cookieFieldSpecByName(key)
+		if !ok {
+			continue
+		}
+		dest[strings.ToLower(spec.wireName)] = value
+	}
+}
+
+func cookieOptionNames() []string {
+	names := make([]string, 0, len(cookieFieldSpecs()))
+	for _, spec := range cookieFieldSpecs() {
+		names = append(names, spec.wireName)
+	}
+	return names
+}
+
+func cookieFieldSpecs() []cookieFieldSpec {
+	return []cookieFieldSpec{
+		{fieldName: "GAT", wireName: "GAT", domain: "." + dedaoCommURL.Host},
+		{fieldName: "ISID", wireName: "ISID", domain: "." + dedaoCommURL.Host},
+		{fieldName: "Iget", wireName: "iget", domain: "www." + dedaoCommURL.Host},
+		{fieldName: "Token", wireName: "token", domain: "www." + dedaoCommURL.Host},
+		{fieldName: "CsrfToken", wireName: "csrfToken", domain: "www." + dedaoCommURL.Host},
+		{fieldName: "GuardDeviceID", wireName: "_guard_device_id", domain: "www." + dedaoCommURL.Host},
+		{fieldName: "SID", wireName: "_sid", domain: "www." + dedaoCommURL.Host},
+		{fieldName: "AcwTc", wireName: "acw_tc", domain: "www." + dedaoCommURL.Host},
+		{fieldName: "AliyungfTc", wireName: "aliyungf_tc", domain: "www." + dedaoCommURL.Host},
+	}
+}
+
+func cookieFieldSpecByName(name string) (cookieFieldSpec, bool) {
+	needle := strings.ToLower(strings.TrimSpace(name))
+	for _, spec := range cookieFieldSpecs() {
+		if strings.ToLower(spec.wireName) == needle {
+			return spec, true
+		}
+	}
+	return cookieFieldSpec{}, false
+}
+
+func cookieFieldValue(options *CookieOptions, spec cookieFieldSpec) string {
+	if options == nil {
+		return ""
+	}
+	value := reflect.ValueOf(options).Elem()
+	field := value.FieldByName(spec.fieldName)
+	if !field.IsValid() || field.Kind() != reflect.String {
+		return ""
+	}
+	return field.String()
 }

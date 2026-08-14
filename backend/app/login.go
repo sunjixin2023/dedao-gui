@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/yann0917/dedao-gui/backend/config"
 	"github.com/yann0917/dedao-gui/backend/services"
@@ -13,14 +12,17 @@ import (
 func LoginByCookie(cookie string) (user *services.User, err error) {
 	var u config.Dedao
 	if len(services.SetCookie) > 0 {
-		cookie += "; " + strings.Join(services.SetCookie, "; ")
+		var update string
+		update, err = services.CookieHeaderFromSetCookies(services.SetCookie)
+		if err != nil {
+			return
+		}
+		cookie = services.MergeCookieHeaders(cookie, update)
 	}
 	err = services.ParseCookies(cookie, &u.CookieOptions)
 	if err != nil {
 		return
 	}
-	// save config
-	u.CookieStr = cookie
 	if _, user, err = config.Instance.SetUser(&u); err != nil {
 		return
 	}

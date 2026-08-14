@@ -24,7 +24,9 @@ func getService() *services.Service {
 
 // LoginedCookies cookie sting to map for chromedp print pdf
 func LoginedCookies() (cookies map[string]string) {
-	Cookie := config.Instance.ActiveUser().CookieStr
-	_ = services.ParseCookies(Cookie, &cookies)
-	return
+	activeUser := config.Instance.ActiveUser()
+	if activeUser == nil {
+		return map[string]string{}
+	}
+	return services.CookieMap(&activeUser.CookieOptions)
 }

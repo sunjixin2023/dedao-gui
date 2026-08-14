@@ -8,9 +8,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yann0917/dedao-gui/backend/config"
 	"github.com/yann0917/dedao-gui/backend/services"
 	"github.com/yann0917/dedao-gui/backend/utils"
 )
+
+func TestLoginedCookiesReturnsEmptyMapWhenNoActiveUser(t *testing.T) {
+	original := config.Instance
+	config.Instance = &config.ConfigsData{}
+	t.Cleanup(func() {
+		config.Instance = original
+	})
+
+	got := LoginedCookies()
+	if got == nil {
+		t.Fatal("LoginedCookies returned nil map")
+	}
+	if len(got) != 0 {
+		t.Fatalf("LoginedCookies = %#v, want empty map", got)
+	}
+}
 
 func TestFetchEbookChaptersPreservesOrder(t *testing.T) {
 	orders := []services.EbookOrders{
