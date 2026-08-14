@@ -420,29 +420,31 @@ const handleLogout = async () => {
 onMounted(() => {
     alive = true
     profileLoadStarted = false
+    const handleSessionState = ([sessionLoaded, loggedIn]: readonly [boolean, boolean]) => {
+        if (!alive || profileLoadStarted) {
+            return
+        }
+
+        if (!sessionLoaded) {
+            return
+        }
+
+        stopSessionWatcher()
+        if (!loggedIn) {
+            invalidateRequests()
+            resetProfileState()
+            pushByName(ROUTE_NAMES.LOGIN)
+            return
+        }
+
+        startProfileLoad()
+    }
+
     sessionWatcherStop = watch(
         () => [store.sessionLoaded, store.loggedIn] as const,
-        ([sessionLoaded, loggedIn]) => {
-            if (!alive || profileLoadStarted) {
-                return
-            }
-
-            if (!sessionLoaded) {
-                return
-            }
-
-            stopSessionWatcher()
-            if (!loggedIn) {
-                invalidateRequests()
-                resetProfileState()
-                pushByName(ROUTE_NAMES.LOGIN)
-                return
-            }
-
-            startProfileLoad()
-        },
-        { immediate: true }
+        handleSessionState
     )
+    handleSessionState([store.sessionLoaded, store.loggedIn] as const)
 })
 
 onBeforeUnmount(() => {
