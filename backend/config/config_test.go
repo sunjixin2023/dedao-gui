@@ -132,6 +132,74 @@ func TestConfigRecoversTruncatedJSONAndKeepsBackup(t *testing.T) {
 	assertValidConfigJSON(t, configPath, "")
 }
 
+func TestConfigClearRecoveryClearsMetadata(t *testing.T) {
+	t.Parallel()
+
+	cfg := New(filepath.Join(t.TempDir(), Name))
+	cfg.recovery = &RecoveryInfo{
+		BackupPath: "/tmp/config.json.bak",
+		Message:    "配置已备份，需要重新登录",
+	}
+
+	cfg.ClearRecovery()
+
+	if recovery := cfg.Recovery(); recovery != nil {
+		t.Fatalf("recovery = %#v, want nil", recovery)
+	}
+}
+
+func TestConfigResetClearsRecoveryAfterSuccessfulSave(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), Name)
+	if err := os.WriteFile(configPath, []byte("{\n \"AcitveUID\": \"user-1\",\n \"Users\": []\n}"), 0o600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cfg := New(configPath)
+	cfg.recovery = &RecoveryInfo{
+		BackupPath: configPath + ".bak",
+		Message:    "配置已备份，需要重新登录",
+	}
+
+	if err := cfg.Reset(); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	if recovery := cfg.Recovery(); recovery != nil {
+		t.Fatalf("recovery = %#v, want nil after successful reset", recovery)
+	}
+	assertValidConfigJSON(t, configPath, "")
+}
+
+func TestConfigResetPreservesRecoveryWhenBlankSaveFails(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), Name)
+	if err := os.WriteFile(configPath, []byte("{\n \"AcitveUID\": \"user-1\",\n \"Users\": []\n}"), 0o600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	cfg := New(configPath)
+	cfg.recovery = &RecoveryInfo{
+		BackupPath: configPath + ".bak",
+		Message:    "配置已备份，需要重新登录",
+	}
+	cfg.fs = &stubConfigFS{
+		createTemp: func(string, string) (*os.File, error) {
+			return nil, errReplacementFailed
+		},
+	}
+
+	err := cfg.Reset()
+	if !errors.Is(err, errReplacementFailed) {
+		t.Fatalf("reset error = %v, want %v", err, errReplacementFailed)
+	}
+	if recovery := cfg.Recovery(); recovery == nil {
+		t.Fatal("expected recovery metadata to remain after failed reset save")
+	}
+}
+
 func TestConfigRecoversTruncatedJSONWithoutOverwritingExistingBackup(t *testing.T) {
 	t.Parallel()
 

@@ -206,6 +206,10 @@ export function SearchHot() {
   return window['go']['backend']['App']['SearchHot']();
 }
 
+export function SessionStatus() {
+  return window['go']['backend']['App']['SessionStatus']();
+}
+
 export function SetDir(arg1) {
   return window['go']['backend']['App']['SetDir'](arg1);
 }

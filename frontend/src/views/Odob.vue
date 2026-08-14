@@ -293,7 +293,7 @@ const aliasPending = new Map<string, Promise<{ src: string; poster?: string }>>(
 
 let tableData = reactive(new services.CourseList())
 
-const isLoggedIn = computed(() => Boolean(Local.get("cookies")))
+const isLoggedIn = computed(() => store.loggedIn)
 const hasFilters = computed(() => filterOptions.value.length > 0)
 const audioList = computed(() => tableData.list || [])
 const normalTracks = computed(() => audioList.value.filter((item: any) => !item?.is_group))
@@ -322,6 +322,17 @@ const queueSummary = computed(() => {
     if (queueSize > 0) return `已创建 ${queueSize} 条连播队列`
     return "点击「通勤快听」自动创建播放队列"
 })
+
+const handleSessionError = async (error: unknown) => {
+    const raw = String(error || '')
+    const sessionMessage = await store.classifySessionError(error)
+    if (!sessionMessage) return false
+    ElMessage({ message: sessionMessage, type: 'warning' })
+    if (/\b(401|403)\b/.test(raw)) {
+        pushLogin()
+    }
+    return true
+}
 
 const setViewMode = (mode: 'card' | 'list') => {
     viewMode.value = mode
@@ -391,14 +402,11 @@ const loadCategoryTotal = async () => {
                 if (!groupMode.active) total.value = item.count
             }
         })
+        return true
     } catch (error: any) {
-        const message = String(error || '')
-        if (message.includes('401')) {
-            store.user = null
-            pushLogin()
-        }
-        Local.remove("cookies")
-        Local.remove("userStore")
+        if (await handleSessionError(error)) return
+        ElMessage({ message: String(error || ''), type: 'warning' })
+        return false
     }
 }
 
@@ -414,7 +422,11 @@ const loadFilters = async () => {
             })
         }
         filterOptions.value = opts
-    } catch {
+        return true
+    } catch (error) {
+        if (await handleSessionError(error)) return false
+        ElMessage({ message: String(error || ''), type: 'warning' })
+        return false
     }
 }
 
@@ -451,13 +463,8 @@ const getTableData = async (append = false) => {
             ? Number(table.total || 0)
             : outerTotal.value
     } catch (error: any) {
-        const message = String(error || '')
-        if (message.includes('401')) {
-            store.user = null
-            pushLogin()
-        } else {
-            ElMessage({ message, type: 'warning' })
-        }
+        if (await handleSessionError(error)) return
+        ElMessage({ message: String(error || ''), type: 'warning' })
     } finally {
         loading.value = false
         initLoading.value = false
@@ -502,7 +509,8 @@ const handlePlay = async (row: any) => {
                 queue[idx].src = src
                 if (poster && !queue[idx].poster) queue[idx].poster = poster
             }
-        } catch {
+        } catch (error) {
+            if (await handleSessionError(error)) return
             ElMessage({ message: '获取音频播放地址失败', type: 'warning' })
         }
     }
@@ -550,9 +558,10 @@ const openDownloadDialog = (row: any) => {
         })
         pushSetting()
     } else {
-        SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).catch((error) => {
+        SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).catch(async (error) => {
+            if (await handleSessionError(error)) return
             ElMessage({
-                message: error,
+                message: String(error || ''),
                 type: 'warning'
             })
         })
@@ -579,7 +588,8 @@ const handleProd = (row: any) => {
 }
 
 onMounted(async () => {
-    await Promise.all([loadCategoryTotal(), loadFilters()])
+    const [totalsReady, filtersReady] = await Promise.all([loadCategoryTotal(), loadFilters()])
+    if (!totalsReady || !filtersReady) return
     getTableData()
 })
 </script>

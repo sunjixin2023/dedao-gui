@@ -56,7 +56,7 @@
 
       <div class="login-helper">
         <p>若你在网页版重新登录后这里失效，点“重置登录状态”即可恢复。</p>
-        <code>rm -rf ~/.config/dedao/config.json</code>
+        <code>会清除当前应用内登录态，并重新拉起二维码。</code>
       </div>
     </div>
   </el-dialog>
@@ -69,7 +69,6 @@ import { Loading, WarningFilled } from '@element-plus/icons-vue';
 import { useRouter } from "vue-router";
 import { userStore } from "../stores/user";
 import { services } from "../../wailsjs/go/models";
-import { Local } from "../utils/storage";
 import { hasBackendBridge, invokeBackend } from "../utils/backend";
 
 const store = userStore();
@@ -129,9 +128,7 @@ const clearTimer = () => {
 };
 
 const resetLocalSession = () => {
-  store.user = null;
-  Local.remove("cookies");
-  Local.remove("userStore");
+  store.clearSession();
 };
 
 const buildQrError = (error: unknown) => {
@@ -166,19 +163,22 @@ const buildQrError = (error: unknown) => {
 };
 
 const syncUserAfterLogin = (loginResult: any) => {
-  const user = reactive(new services.User());
-  Object.assign(user, loginResult?.user || {});
-  store.user = user;
-
-  const cookie = String(loginResult?.cookie || "").trim();
-  if (cookie) {
-    Local.set("cookies", cookie);
-  }
+  const user = Object.assign(new services.User(), loginResult?.user || {});
+  store.acceptLogin(user);
 
   const existed = store.userList.some((item) => item.uid_hazy === user.uid_hazy);
   if (!existed) {
     store.userList.push(user);
   }
+};
+
+const classifyQrSessionError = async (error: unknown) => {
+  const message = await store.classifySessionError(error);
+  if (!message) return "";
+  clearTimer();
+  qrStatus.value = "error";
+  qrError.value = message;
+  return message;
 };
 
 const startCheckLoginTimer = () => {
@@ -210,7 +210,16 @@ const startCheckLoginTimer = () => {
       const msg = safeErrorMessage(error);
       if (msg.includes("二维码已过期")) {
         await getQrcode(true);
-      } else if (msg.includes("backend") || msg.includes("桌面后端")) {
+        return;
+      }
+
+      const sessionMessage = await classifyQrSessionError(error);
+      if (sessionMessage) {
+        ElMessage({ message: sessionMessage, type: "warning" });
+        return;
+      }
+
+      if (msg.includes("backend") || msg.includes("桌面后端")) {
         clearTimer();
         qrStatus.value = "error";
         qrError.value = buildQrError(error);
@@ -248,6 +257,13 @@ const getQrcode = async (silent = false) => {
     qrStatus.value = "ready";
     startCheckLoginTimer();
   } catch (error) {
+    const sessionMessage = await classifyQrSessionError(error);
+    if (sessionMessage) {
+      if (!silent) {
+        ElMessage({ message: sessionMessage, type: "warning" });
+      }
+      return;
+    }
     qrStatus.value = "error";
     qrError.value = buildQrError(error);
     if (!silent) {

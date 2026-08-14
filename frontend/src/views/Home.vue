@@ -176,8 +176,8 @@
 
       <!-- 右侧用户信息卡片 -->
       <div class="user-card-wrapper">
-        <div class="user-card" :class="!Local.get('cookies') ? 'not-login' : ''">
-          <div v-if="Local.get('cookies')==null" class="login-prompt">
+        <div class="user-card" :class="!store.loggedIn ? 'not-login' : ''">
+          <div v-if="!store.loggedIn" class="login-prompt">
             <div class="login-placeholder">
                <img src="../assets/images/logo-universal.png" alt="Logo" class="login-logo" />
                <p>登录开启学习之旅</p>
@@ -190,17 +190,17 @@
             <div class="avatar-section">
               <el-avatar
                 :size="80"
-                :src="user.avatar"
+                :src="profileUser.avatar"
                 class="user-avatar"
                 @click="goToUserCenter"
               />
-              <h3 class="user-name" @click="goToUserCenter">{{ user.nickname }}</h3>
+              <h3 class="user-name" @click="goToUserCenter">{{ profileUser.nickname }}</h3>
             </div>
             <div class="user-stats">
               <div class="stat-item">
                 <span class="stat-label">今日学习</span>
                 <div class="stat-value">
-                  <span class="number">{{ user.today_study_time > 0 ? (user.today_study_time / 60).toFixed(0) : '0' }}</span>
+                  <span class="number">{{ profileUser.today_study_time > 0 ? (profileUser.today_study_time / 60).toFixed(0) : '0' }}</span>
                   <span class="unit">分钟</span>
                 </div>
               </div>
@@ -208,7 +208,7 @@
               <div class="stat-item">
                 <span class="stat-label">连续学习</span>
                 <div class="stat-value">
-                  <span class="number">{{ user.study_serial_days }}</span>
+                  <span class="number">{{ profileUser.study_serial_days }}</span>
                   <span class="unit">天</span>
                 </div>
               </div>
@@ -397,7 +397,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onBeforeMount, onMounted, computed } from "vue";
+import { ref, reactive, onBeforeMount, onMounted, computed, watch } from "vue";
+import { ElMessage } from "element-plus";
 import { VideoPlay, Headset, Reading } from '@element-plus/icons-vue'
 import {
   GetHomeInitialState,
@@ -413,13 +414,14 @@ import EbookInfo from "../components/EbookInfo.vue";
 import CourseInfo from "../components/CourseInfo.vue";
 import { useAppRouter } from "../composables/useRouter";
 import { ROUTE_NAMES } from "../router/routes";
-import { Local } from "../utils/storage";
 import { learningStore } from "../stores/learning";
 import { playerStore } from "../stores/player";
+import { userStore } from "../stores/user";
 
 const { pushByName, push } = useAppRouter();
 const lStore = learningStore();
 const pStore = playerStore();
+const store = userStore();
 
 const loading = ref(true);
 const page = ref(0);
@@ -451,16 +453,21 @@ let courseContentList = reactive(new services.SunflowerContent());
 let currentCourse = reactive(new services.Navigation());
 let currentEbook = reactive(new services.Navigation());
 let user = reactive(new services.User());
+const emptyUser = new services.User();
 
 const categoryList = computed(() => initial.homeData?.categoryList ?? []);
 const bannerList = computed(() => initial.homeData?.banner ?? []);
 const moduleList = computed(() => initial.homeData?.moduleList ?? []);
+const profileUser = computed(() => {
+  if (String(user.uid_hazy ?? "").trim()) return user;
+  return store.user ?? emptyUser;
+});
 const todayStudyMinutes = computed(() => {
-  const minutes = Number(user.today_study_time ?? 0) / 60;
+  const minutes = Number(profileUser.value.today_study_time ?? 0) / 60;
   return Math.max(0, Math.floor(minutes));
 });
 const studyStreakDays = computed(() => {
-  return Math.max(0, Number(user.study_serial_days ?? 0));
+  return Math.max(0, Number(profileUser.value.study_serial_days ?? 0));
 });
 const articleProgressText = computed(() => {
   if (!lStore.hasLastArticle) return "暂无";
@@ -478,76 +485,120 @@ const audioLaneSummary = computed(() => {
   }
   return "进入听书页可一键创建连播队列";
 });
+const userInfoRequested = ref(false);
+
+const showGenericError = (error: unknown) => {
+  const message = String(error || "").trim();
+  if (!message) return;
+  ElMessage({
+    message,
+    type: "warning",
+  });
+};
+
+const handleSessionError = async (error: unknown) => {
+  const raw = String(error || "");
+  const sessionMessage = await store.classifySessionError(error);
+  if (!sessionMessage) return false;
+  ElMessage({
+    message: sessionMessage,
+    type: "warning",
+  });
+  if (/\b(401|403)\b/.test(raw)) {
+    pushByName(ROUTE_NAMES.LOGIN);
+  }
+  return true;
+};
+
+const loadSunflowerContent = async (enid: string, nType: number, size = pageSize.value) => {
+  try {
+    const list = await SunflowerLabelContent(enid, nType, page.value, size);
+    if (nType == 2) {
+      Object.assign(ebookContentList, list);
+    } else if (nType == 4) {
+      Object.assign(courseContentList, list);
+    }
+    return true;
+  } catch (error) {
+    if (await handleSessionError(error)) return false;
+    showGenericError(error);
+    return false;
+  }
+};
+
+const loadSunflowerSection = async (nType: number, size: number) => {
+  try {
+    const result = await SunflowerLabelList(nType);
+    const targetList = nType === 2 ? ebookLabelList : courseLabelList;
+    const targetNav = nType === 2 ? currentEbook : currentCourse;
+    Object.assign(targetList, result);
+    if (targetList.list?.[0]) {
+      Object.assign(targetNav, targetList.list[0]);
+    }
+    return await loadSunflowerContent("", nType, size);
+  } catch (error) {
+    if (await handleSessionError(error)) return false;
+    showGenericError(error);
+    return false;
+  }
+};
 
 onBeforeMount(() => {
   // 分类
   GetHomeInitialState()
     .then((state) => {
       Object.assign(initial, state);
-      if (initial.isLogin) {
-        getUserInfo();
-      }
     })
-    .catch((error) => {
-      console.log(error);
+    .catch(async (error) => {
+      if (await handleSessionError(error)) return;
+      showGenericError(error);
     });
 });
 
-onMounted(() => {
-  // 电子书
-  SunflowerLabelList(2)
-    .then((result) => {
-      Object.assign(ebookLabelList, result);
-      Object.assign(currentEbook, ebookLabelList.list[0]);
-      SunflowerLabelContent("", 2, 0, 10)
-        .then((list) => {
-          Object.assign(ebookContentList, list);
-        })
-        .catch((error) => {
-          console.log(error);
-        });
-    })
-    .catch((error) => {
-      console.log(error);
-    }),
-    // 精选课程
-    SunflowerLabelList(4)
-      .then((result) => {
-        Object.assign(courseLabelList, result);
-        Object.assign(currentCourse, courseLabelList.list[0]);
-        SunflowerLabelContent("", 4, 0, 4)
-          .then((list) => {
-            Object.assign(courseContentList, list);
-          })
-          .catch((error) => {
-            console.log(error);
-          });
-        // console.log(result)
-      })
-      .catch((error) => {
-        console.log(error);
-      });
+watch(
+  () => [store.sessionLoaded, store.loggedIn] as const,
+  async ([sessionLoaded, loggedIn]) => {
+    if (!sessionLoaded || !loggedIn || userInfoRequested.value) return;
+    userInfoRequested.value = true;
+    const ok = await getUserInfo();
+    if (!ok) {
+      userInfoRequested.value = false;
+    }
+  },
+  { immediate: true }
+);
+
+onMounted(async () => {
+  await Promise.all([
+    loadSunflowerSection(2, 10),
+    loadSunflowerSection(4, 4),
+    getFreeResourceList(),
+  ]);
 });
 
 const getFreeResourceList = async () => {
-  await SunflowerResourceList()
-    .then((list) => {
-      Object.assign(freeResourceList, list);
-    })
-    .catch((error) => {
-      console.log(error);
-    });
+  try {
+    const list = await SunflowerResourceList();
+    Object.assign(freeResourceList, list);
+    return true;
+  } catch (error) {
+    if (await handleSessionError(error)) return false;
+    showGenericError(error);
+    return false;
+  }
 };
-getFreeResourceList();
 
 const getUserInfo = async () => {
-  await UserInfo()
-    .then((result) => {
-      Object.assign(user, result);
-    })
-    .catch((error) => {
-      console.log(error);
-    });
+  try {
+    const result = await UserInfo();
+    Object.assign(user, result);
+    store.acceptLogin(Object.assign(new services.User(), result));
+    return true;
+  } catch (error) {
+    if (await handleSessionError(error)) return false;
+    showGenericError(error);
+    return false;
+  }
 };
 
 const goToCourseList = () => {
@@ -630,17 +681,8 @@ const handleLabel = (
 };
 
 const sunflowerLabelContent = async (enid: string, nType: number) => {
-  await SunflowerLabelContent(enid, nType, page.value, pageSize.value)
-    .then((list) => {
-      if (nType == 2) {
-        Object.assign(ebookContentList, list);
-      } else if (nType == 4) {
-        Object.assign(courseContentList, list);
-      }
-    })
-    .catch((error) => {
-      console.log(error);
-    });
+  const size = nType == 2 ? 10 : 4;
+  await loadSunflowerContent(enid, nType, size);
 };
 
 const ossProcess = (url: string) => {

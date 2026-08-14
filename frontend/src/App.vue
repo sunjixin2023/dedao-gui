@@ -8,15 +8,20 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import { themeStore } from './stores/theme'
 import { settingStore } from './stores/setting'
 import { playerStore } from './stores/player'
+import { userStore } from './stores/user'
 import { setFontFamily } from './utils/utils'
 import { invokeBackend } from './utils/backend'
 
 // 初始化主题
 const store = themeStore()
 const sStore = settingStore()
+const authStore = userStore()
 onMounted(() => {
   store.initTheme()
   setFontFamily(sStore.setting.fontFamily || 'default')
+  authStore.refreshSession().catch((error) => {
+    console.warn('Initial session hydration failed:', error)
+  })
 })
 
 const pStore = playerStore()
@@ -91,6 +96,14 @@ const elementTheme = computed(() => store.isDark ? 'dark' : 'light')
         <Menu />
       </el-header>
       <el-main class="app-main" :style="mainStyle">
+        <el-alert
+          v-if="authStore.recoveryMessage"
+          class="recovery-alert"
+          type="warning"
+          :closable="false"
+          title="配置已从备份恢复，需要重新登录"
+          :description="`恢复信息：${authStore.recoveryMessage}；备份文件：${authStore.recoveryBackupPath}；需要重新登录。`"
+        />
         <router-view></router-view>
       </el-main>
       <GlobalAudioPlayer />
@@ -232,6 +245,10 @@ body {
   }
 
 
+}
+
+.recovery-alert {
+  margin-bottom: 12px;
 }
 
 @media (max-width: 1100px) {

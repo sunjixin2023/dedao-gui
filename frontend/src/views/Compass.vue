@@ -73,7 +73,6 @@ import { services } from '../../wailsjs/go/models'
 import { useRouter } from 'vue-router'
 import { userStore } from '../stores/user';
 import Pagination from '../components/Pagination.vue'
-import { Local } from '../utils/storage';
 import { Download as DownloadIcon, User, Picture } from '@element-plus/icons-vue'
 
 const store = userStore()
@@ -95,6 +94,20 @@ const downloadTypeOptions = [
 ]
 let tableData = reactive(new services.CourseList)
 
+const handleSessionError = async (error: unknown) => {
+    const raw = String(error || '')
+    const sessionMessage = await store.classifySessionError(error)
+    if (!sessionMessage) return false
+    ElMessage({
+        message: sessionMessage,
+        type: 'warning'
+    })
+    if (/\b(401|403)\b/.test(raw)) {
+        router.push("/user/login")
+    }
+    return true
+}
+
 onMounted(() => {
     CourseCategory().then(result => {
         result.forEach((item, key) => {
@@ -102,13 +115,12 @@ onMounted(() => {
                 total.value = item.count
             }
         })
-    }).catch((error) => {
-        if (error == '401 Unauthorized') {
-            store.user = null
-            router.push("/user/login")
-        }
-        Local.remove("cookies")
-        Local.remove("userStore")
+    }).catch(async (error) => {
+        if (await handleSessionError(error)) return
+        ElMessage({
+            message: String(error || ''),
+            type: 'warning'
+        })
     })
 })
 
@@ -125,10 +137,11 @@ const getTableData = async () => {
         loading.value = false
         Object.assign(tableData, table)
         console.log(tableData)
-    }).catch((error) => {
+    }).catch(async (error) => {
         loading.value = false
+        if (await handleSessionError(error)) return
         ElMessage({
-            message: error,
+            message: String(error || ''),
             type: 'warning'
         })
     })
@@ -162,9 +175,10 @@ const download = async (id: number, dType: number) => {
             message: '任务已添加到下载队列',
             type: 'success'
         })
-    }).catch((error) => {
+    }).catch(async (error) => {
+        if (await handleSessionError(error)) return
         ElMessage({
-            message: error,
+            message: String(error || ''),
             type: 'warning'
         })
     })

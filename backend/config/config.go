@@ -98,6 +98,8 @@ func (osConfigFS) Stat(path string) (os.FileInfo, error) {
 
 func (c *ConfigsData) Recovery() *RecoveryInfo { return c.recovery }
 
+func (c *ConfigsData) ClearRecovery() { c.recovery = nil }
+
 func (c *ConfigsData) InitError() error { return c.initErr }
 
 // Init 初始化配置
@@ -259,7 +261,11 @@ func (c *ConfigsData) Reset() error {
 	c.AcitveUID = ""
 	c.Users = DedaoUsers{}
 	c.setActiveUser(&Dedao{})
-	return c.Save()
+	if err := c.Save(); err != nil {
+		return err
+	}
+	c.ClearRecovery()
+	return nil
 }
 
 // New config

@@ -107,6 +107,8 @@ export function OutsideDetail(arg1:string):Promise<services.OutsideDetail>;
 
 export function SearchHot():Promise<services.SearchTot>;
 
+export function SessionStatus():Promise<backend.SessionStatus>;
+
 export function SetDir(arg1:Array<string>):Promise<void>;
 
 export function SetDirConfig(arg1:backend.DirConfig):Promise<void>;

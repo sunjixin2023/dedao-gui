@@ -29,6 +29,7 @@ func LoginByCookie(cookie string) (user *services.User, err error) {
 	if err = config.Instance.Save(); err != nil {
 		return
 	}
+	config.Instance.ClearRecovery()
 	return
 }
 

@@ -20,8 +20,25 @@ type QrCodeResp struct {
 
 type LoginResult struct {
 	Status int            `json:"status"` // 1-登录成功,2-二维码过期
-	Cookie string         `json:"cookie"` // cookies string
 	User   *services.User `json:"user"`
+}
+
+type SessionUser struct {
+	UIDHazy  string `json:"uid_hazy"`
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
+}
+
+type SessionStatus struct {
+	LoggedIn bool                 `json:"loggedIn"`
+	User     *SessionUser         `json:"user,omitempty"`
+	Recovery *config.RecoveryInfo `json:"recovery,omitempty"`
+}
+
+type sessionSource interface {
+	ActiveUser() *config.Dedao
+	LoginUserCount() int
+	Recovery() *config.RecoveryInfo
 }
 
 var (
@@ -44,6 +61,47 @@ func ResetInstance() {
 func init() {
 	Instance = config.Instance.ActiveUserService()
 }
+
+func buildSessionStatus(source sessionSource) SessionStatus {
+	if source == nil {
+		return SessionStatus{}
+	}
+	status := SessionStatus{
+		Recovery: source.Recovery(),
+	}
+
+	activeUser := source.ActiveUser()
+	if activeUser == nil || source.LoginUserCount() == 0 || strings.TrimSpace(activeUser.UIDHazy) == "" || !hasMeaningfulSessionAuth(activeUser) {
+		return status
+	}
+
+	status.LoggedIn = true
+	status.User = &SessionUser{
+		UIDHazy:  activeUser.UIDHazy,
+		Nickname: activeUser.Name,
+		Avatar:   activeUser.Avatar,
+	}
+	return status
+}
+
+func hasMeaningfulSessionAuth(user *config.Dedao) bool {
+	if user == nil {
+		return false
+	}
+
+	for _, value := range []string{
+		user.Token,
+		user.SID,
+		user.Iget,
+		user.ISID,
+	} {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) GetQrcode() (qrCode QrCodeResp, err error) {
 	if Instance == nil {
 		Instance = config.Instance.ActiveUserService()
@@ -87,7 +145,6 @@ func (a *App) CheckLogin(token, qrCodeString string) (result LoginResult, err er
 	if err != nil {
 		return
 	}
-	result.Cookie = cookie
 	if check != nil {
 		if check.Data.Status == 1 {
 			result.User, err = app.LoginByCookie(cookie)
@@ -103,6 +160,10 @@ func (a *App) CheckLogin(token, qrCodeString string) (result LoginResult, err er
 		result.Status = check.Data.Status
 	}
 	return
+}
+
+func (a *App) SessionStatus() SessionStatus {
+	return buildSessionStatus(config.Instance)
 }
 
 func (a *App) Logout() (err error) {

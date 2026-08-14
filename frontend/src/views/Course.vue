@@ -232,7 +232,7 @@ const downloadTypeOptions = [
 
 let tableData = reactive(new services.CourseList())
 
-const isLoggedIn = computed(() => Boolean(Local.get("cookies")))
+const isLoggedIn = computed(() => store.loggedIn)
 const hasFilters = computed(() => filterOptions.value.length > 0)
 const courseList = computed(() => tableData.list || [])
 const normalCourses = computed(() => courseList.value.filter((item: any) => !item?.is_group))
@@ -254,6 +254,17 @@ const safePercent = (val: any) => {
     const n = Number(val || 0)
     if (!Number.isFinite(n)) return 0
     return Math.max(0, Math.min(100, Math.round(n)))
+}
+
+const handleSessionError = async (error: unknown) => {
+    const raw = String(error || '')
+    const sessionMessage = await store.classifySessionError(error)
+    if (!sessionMessage) return false
+    ElMessage({ message: sessionMessage, type: 'warning' })
+    if (/\b(401|403)\b/.test(raw)) {
+        pushLogin()
+    }
+    return true
 }
 
 const setViewMode = (mode: 'card' | 'list') => {
@@ -293,7 +304,11 @@ const loadFilters = async () => {
             })
         }
         filterOptions.value = opts
-    } catch {
+        return true
+    } catch (error) {
+        if (await handleSessionError(error)) return false
+        ElMessage({ message: String(error || ''), type: 'warning' })
+        return false
     }
 }
 
@@ -306,14 +321,11 @@ const loadCategoryTotal = async () => {
                 if (!groupMode.active) total.value = item.count
             }
         })
+        return true
     } catch (error: any) {
-        const message = String(error || '')
-        if (message.includes('401')) {
-            store.user = null
-            pushLogin()
-        }
-        Local.remove("cookies")
-        Local.remove("userStore")
+        if (await handleSessionError(error)) return
+        ElMessage({ message: String(error || ''), type: 'warning' })
+        return false
     }
 }
 
@@ -350,13 +362,8 @@ const getTableData = async (append = false) => {
             ? Number(table.total || 0)
             : outerTotal.value
     } catch (error: any) {
-        const message = String(error || '')
-        if (message.includes('401')) {
-            store.user = null
-            pushLogin()
-        } else {
-            ElMessage({ message, type: 'warning' })
-        }
+        if (await handleSessionError(error)) return
+        ElMessage({ message: String(error || ''), type: 'warning' })
     } finally {
         loading.value = false
         initLoading.value = false
@@ -437,9 +444,10 @@ const openDownloadDialog = (row: any) => {
         })
         pushSetting()
     } else {
-        SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).catch((error) => {
+        SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).catch(async (error) => {
+            if (await handleSessionError(error)) return
             ElMessage({
-                message: error,
+                message: String(error || ''),
                 type: 'warning'
             })
         })
@@ -451,7 +459,8 @@ const closeDownloadDialog = () => {
 }
 
 onMounted(async () => {
-    await Promise.all([loadFilters(), loadCategoryTotal()])
+    const [filtersReady, totalsReady] = await Promise.all([loadFilters(), loadCategoryTotal()])
+    if (!filtersReady || !totalsReady) return
     getTableData()
 })
 </script>

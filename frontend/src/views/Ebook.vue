@@ -305,7 +305,7 @@ const downloadTypeOptions = [
 
 let tableData = reactive(new services.CourseList())
 
-const isLoggedIn = computed(() => Boolean(Local.get("cookies")))
+const isLoggedIn = computed(() => store.loggedIn)
 const hasFilters = computed(() => filterOptions.value.length > 0)
 const ebookList = computed(() => tableData.list || [])
 const normalBooks = computed(() => ebookList.value.filter((item: any) => !item?.is_group))
@@ -346,6 +346,17 @@ const safePercent = (val: any) => {
   return Math.max(0, Math.min(100, Math.round(n)))
 }
 
+const handleSessionError = async (error: unknown) => {
+  const raw = String(error || '')
+  const sessionMessage = await store.classifySessionError(error)
+  if (!sessionMessage) return false
+  ElMessage({ message: sessionMessage, type: 'warning' })
+  if (/\b(401|403)\b/.test(raw)) {
+    pushLogin()
+  }
+  return true
+}
+
 const setViewMode = (mode: 'card' | 'list') => {
   viewMode.value = mode
   Local.set('ebook_view_mode', mode)
@@ -380,14 +391,11 @@ const loadCategoryTotal = async () => {
         if (!groupMode.active) total.value = item.count
       }
     })
+    return true
   } catch (error: any) {
-    const message = String(error || '')
-    if (message.includes('401')) {
-      store.user = null
-      pushLogin()
-    }
-    Local.remove("cookies")
-    Local.remove("userStore")
+    if (await handleSessionError(error)) return
+    ElMessage({ message: String(error || ''), type: 'warning' })
+    return false
   }
 }
 
@@ -403,7 +411,11 @@ const loadFilters = async () => {
       })
     }
     filterOptions.value = opts
-  } catch {
+    return true
+  } catch (error) {
+    if (await handleSessionError(error)) return false
+    ElMessage({ message: String(error || ''), type: 'warning' })
+    return false
   }
 }
 
@@ -429,16 +441,11 @@ const getTableData = async (append = false) => {
       ? Number(table.total || 0)
       : outerTotal.value
   } catch (error: any) {
-    const message = String(error || '')
-    if (message.includes('401')) {
-      store.user = null
-      pushLogin()
-    } else {
-      ElMessage({
-        message,
-        type: 'warning'
-      })
-    }
+    if (await handleSessionError(error)) return
+    ElMessage({
+      message: String(error || ''),
+      type: 'warning'
+    })
   } finally {
     loading.value = false
     initLoading.value = false
@@ -526,7 +533,7 @@ const resolveEbookEnid = (row: any) => {
   try {
     const url = new URL(full)
     return String(url.searchParams.get('id') || url.searchParams.get('enid') || '').trim()
-  } catch {
+  } catch (_error) {
     return ''
   }
 }
@@ -563,9 +570,10 @@ const openDownloadDialog = (row: any) => {
   } else {
     SetDir([setStore.getDownloadDir, setStore.getFfmpegDirDir, setStore.getWkDir]).then(() => {
       dialogDownloadVisible.value = true
-    }).catch((error) => {
+    }).catch(async (error) => {
+      if (await handleSessionError(error)) return
       ElMessage({
-        message: error,
+        message: String(error || ''),
         type: 'warning'
       })
     })
@@ -601,10 +609,11 @@ const ebookShelfRemove = (enid: string) => {
         message: '移除成功',
       })
       refreshList()
-    }).catch((err) => {
+    }).catch(async (err) => {
+      if (await handleSessionError(err)) return
       ElMessage({
         type: 'error',
-        message: err,
+        message: String(err || ''),
       })
     })
   })
@@ -622,7 +631,8 @@ const stripHtml = (html: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCategoryTotal(), loadFilters()])
+  const [totalsReady, filtersReady] = await Promise.all([loadCategoryTotal(), loadFilters()])
+  if (!totalsReady || !filtersReady) return
   getTableData()
 })
 </script>
