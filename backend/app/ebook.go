@@ -147,7 +147,7 @@ func EbookChapterHtml(enID, chapterID string) (htmlContent string, err error) {
 	return
 }
 
-func EbookPage(ctx context.Context, enID string) (info *services.EbookInfo, svgContent utils.SvgContents, err error) {
+func EbookPage(ctx context.Context, enID string, downloadID int) (info *services.EbookInfo, svgContent utils.SvgContents, err error) {
 	token, err1 := getService().EbookReadToken(enID)
 	if err1 != nil {
 		err = err1
@@ -173,6 +173,7 @@ func EbookPage(ctx context.Context, enID string) (info *services.EbookInfo, svgC
 		chapterLabels[key] = ebookToc.Text
 	}
 	coordinator := newChapterProgressCoordinator(total, func(progress Progress) {
+		progress.ID = downloadID
 		runtime.EventsEmit(ctx, "ebookDownload", progress)
 	})
 	svgContent, err = fetchEbookChapters(ctx, info.BookInfo.Orders, 5, func(chapterCtx context.Context, order services.EbookOrders, index int) (*utils.SvgContent, error) {

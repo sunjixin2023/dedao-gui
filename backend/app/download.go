@@ -70,28 +70,78 @@ func EmitDownloadState(ctx context.Context, event string, progress Progress, sta
 	runtime.EventsEmit(ctx, event, progress)
 }
 
-func EmitTerminalDownloadState(ctx context.Context, event string, progress Progress, err error) {
+func resolveTerminalProgress(progress Progress, err error) Progress {
 	if err == nil {
 		if progress.Value == "" {
 			progress.Value = "下载完成"
 		}
 		progress.Pct = 100
-		EmitDownloadState(ctx, event, progress, DownloadCompleted, "")
-		return
+		progress.State = DownloadCompleted
+		progress.Detail = ""
+		return progress
 	}
 
-	detail := err.Error()
 	if errors.Is(err, context.Canceled) {
 		if progress.Value == "" {
 			progress.Value = "下载已取消"
 		}
-		EmitDownloadState(ctx, event, progress, DownloadCancelled, detail)
-		return
+		progress.State = DownloadCancelled
+		progress.Detail = safeDownloadDetail(err)
+		return progress
 	}
+
 	if progress.Value == "" {
 		progress.Value = "下载失败"
 	}
-	EmitDownloadState(ctx, event, progress, DownloadFailed, detail)
+	progress.State = DownloadFailed
+	progress.Detail = safeDownloadDetail(err)
+	return progress
+}
+
+func EmitTerminalDownloadState(ctx context.Context, event string, progress Progress, err error) {
+	progress = resolveTerminalProgress(progress, err)
+	EmitDownloadState(ctx, event, progress, progress.State, progress.Detail)
+}
+
+func safeDownloadDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "已取消当前下载"
+	}
+
+	lower := strings.ToLower(err.Error())
+
+	switch {
+	case strings.Contains(lower, "ffmpeg"):
+		return "下载失败，请检查 ffmpeg 配置后重试"
+	case strings.Contains(lower, "wkhtmltopdf"):
+		return "下载失败，请检查 wkhtmltopdf 配置后重试"
+	case strings.Contains(lower, "permission denied"),
+		strings.Contains(lower, "operation not permitted"),
+		strings.Contains(lower, "read-only"),
+		strings.Contains(lower, "no such file"),
+		strings.Contains(lower, "file exists"),
+		strings.Contains(lower, "mkdir"),
+		strings.Contains(lower, "rename"),
+		strings.Contains(lower, "disk"),
+		strings.Contains(lower, "space"),
+		strings.Contains(lower, "路径"),
+		strings.Contains(lower, "目录"):
+		return "下载失败，请检查下载目录权限、路径和磁盘空间后重试"
+	case strings.Contains(lower, "timeout"),
+		strings.Contains(lower, "connection"),
+		strings.Contains(lower, "tls"),
+		strings.Contains(lower, "eof"),
+		strings.Contains(lower, "http"),
+		strings.Contains(lower, "status"),
+		strings.Contains(lower, "network"),
+		strings.Contains(lower, "url"):
+		return "下载失败，请检查网络连接后重试"
+	default:
+		return "下载失败，请稍后重试"
+	}
 }
 
 func SetOutputDir(dir string) {
@@ -196,7 +246,7 @@ func (d *CourseDownload) Download() error {
 		if err != nil {
 			return err
 		}
-		return DownloadPdfCourse(downloadData.Data, path, d.Ctx)
+		return DownloadPdfCourse(downloadData.Data, path, d.Ctx, d.ID)
 
 	case 3:
 		// 下载 Markdown
@@ -204,7 +254,7 @@ func (d *CourseDownload) Download() error {
 		if err != nil {
 			return err
 		}
-		return DownloadMarkdown(articles, d.AID, path, d.Ctx)
+		return DownloadMarkdown(articles, d.AID, path, d.Ctx, d.ID)
 	}
 	return nil
 
@@ -304,7 +354,7 @@ func (d *EBookDownload) Download() error {
 	}
 
 	title += "_" + detail.BookAuthor
-	info, svgContent, err := EbookPage(d.Ctx, detail.Enid)
+	info, svgContent, err := EbookPage(d.Ctx, detail.Enid, d.ID)
 	if err != nil {
 		return err
 	}
@@ -316,6 +366,7 @@ func (d *EBookDownload) Download() error {
 		3: "EPUB",
 	}
 	var progress Progress
+	progress.ID = d.ID
 	progress.Pct = 100
 	progress.Value = "正在生成" + dType[d.DownloadType] + "文件"
 	EmitDownloadState(d.Ctx, "ebookDownload", progress, DownloadVerifying, "")
@@ -829,13 +880,13 @@ func getMdHeader(level int) string {
 	return ""
 }
 
-func DownloadPdfCourse(list []downloader.Datum, path string, ctx context.Context) error {
+func DownloadPdfCourse(list []downloader.Datum, path string, ctx context.Context, ownerID int) error {
 	name, fileName := "", ""
 
 	total, curr := len(list), 0
 	for _, v := range list {
 		var progress Progress
-		progress.ID = v.ID
+		progress.ID = ownerID
 		progress.Total = total
 		curr++
 		progress.Current = curr
@@ -876,11 +927,11 @@ func DownloadPdfCourse(list []downloader.Datum, path string, ctx context.Context
 	return nil
 }
 
-func DownloadMarkdown(list *services.ArticleList, aid int, path string, ctx context.Context) error {
+func DownloadMarkdown(list *services.ArticleList, aid int, path string, ctx context.Context, ownerID int) error {
 	total, curr := len(list.List), 0
 	for _, v := range list.List {
 		var progress Progress
-		progress.ID = aid
+		progress.ID = ownerID
 		progress.Total = total
 		curr++
 		progress.Current = curr

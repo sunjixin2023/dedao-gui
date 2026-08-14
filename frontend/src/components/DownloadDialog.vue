@@ -71,11 +71,12 @@
 import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
 import { CancelDownload, CourseDownload, EbookDownload, OdobDownload } from "../../wailsjs/go/backend/App";
 import { ElMessage } from "element-plus";
-import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
+import { EventsOn } from "../../wailsjs/runtime/runtime";
 
 type DownloadState = 'queued' | 'downloading' | 'verifying' | 'completed' | 'failed' | 'cancelled'
 
 type DownloadProgressEvent = {
+    id?: number | string
     pct?: number
     value?: string
     state?: DownloadState
@@ -203,19 +204,41 @@ const eventNameForProduct = () => {
     }
 }
 
+const normalizeProgressId = (value: unknown) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return String(value)
+    }
+    if (typeof value === 'string') {
+        return value.trim()
+    }
+    return ''
+}
+
+const activeDownloadId = computed(() => normalizeProgressId(props.downloadId))
+
+const matchesActiveDownload = (data?: DownloadProgressEvent) => {
+    const eventId = normalizeProgressId(data?.id)
+    const currentId = activeDownloadId.value
+
+    if (!currentId) {
+        return true
+    }
+    if (!eventId) {
+        return false
+    }
+    return eventId === currentId
+}
+
 const detachProgressListener = () => {
     if (removeEventListener) {
         removeEventListener()
         removeEventListener = null
     }
-    if (activeEventName) {
-        EventsOff(activeEventName)
-        activeEventName = ''
-    }
+    activeEventName = ''
 }
 
 const applyProgressEvent = (data?: DownloadProgressEvent) => {
-    if (!data) {
+    if (!data || !matchesActiveDownload(data)) {
         return
     }
 
@@ -261,6 +284,14 @@ const applyProgressEvent = (data?: DownloadProgressEvent) => {
     if (nextState === 'completed') {
         percentage.value = 100
     }
+}
+
+const safeFailureDetail = () => {
+    return errorDetail.value || '下载失败，请检查下载目录和网络后重试'
+}
+
+const safeCancelFailureDetail = () => {
+    return '取消下载失败，请稍后重试'
 }
 
 const attachProgressListener = () => {
@@ -320,7 +351,9 @@ const cancelDownload = async () => {
     try {
         await CancelDownload()
     } catch (error) {
-        const message = normalizeError(error)
+        const rawMessage = normalizeError(error)
+        console.warn('CancelDownload failed:', rawMessage)
+        const message = safeCancelFailureDetail()
         state.value = 'failed'
         content.value = '取消下载失败'
         errorDetail.value = message
@@ -359,18 +392,20 @@ const download = async () => {
         finalizeSuccessfulDownload()
         return
     } catch (error) {
-        const message = normalizeError(error)
+        const rawMessage = normalizeError(error)
+        console.warn('Download failed:', rawMessage)
 
         const currentState = state.value as DownloadState
         if (currentState === 'cancelled') {
-            errorDetail.value = errorDetail.value || message
+            errorDetail.value = errorDetail.value || '已取消，可稍后继续下载'
             content.value = content.value || '已取消，可稍后继续下载'
             return
         }
 
         state.value = 'failed'
         content.value = '下载失败'
-        errorDetail.value = errorDetail.value || message
+        const message = safeFailureDetail()
+        errorDetail.value = message
         ElMessage({
             message,
             type: 'warning'

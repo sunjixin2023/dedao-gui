@@ -92,3 +92,15 @@ func TestRunDownloadClearsCancelFunctionAfterCompletion(t *testing.T) {
 		t.Fatalf("second runDownload error = %v", err)
 	}
 }
+
+func TestRunDownloadRejectsNilCallback(t *testing.T) {
+	app := &App{Ctx: context.Background()}
+
+	err := app.runDownload(nil)
+	if err == nil {
+		t.Fatal("runDownload unexpectedly accepted nil callback")
+	}
+	if got, want := err.Error(), "下载任务无效"; got != want {
+		t.Fatalf("runDownload error = %q, want %q", got, want)
+	}
+}

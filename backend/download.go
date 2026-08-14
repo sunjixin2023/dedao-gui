@@ -14,6 +14,7 @@ import (
 )
 
 var errActiveDownload = errors.New("已有下载任务正在运行")
+var errInvalidDownload = errors.New("下载任务无效")
 
 func (a *App) OpenDirectoryDialog(title string) (dir string, err error) {
 	home, _ := os.LookupEnv("HOME")
@@ -93,6 +94,10 @@ func (a *App) SetDirConfig(cfg DirConfig) (err error) {
 }
 
 func (a *App) runDownload(run func(context.Context) error) error {
+	if run == nil {
+		return errInvalidDownload
+	}
+
 	a.downloadMu.Lock()
 	if a.downloadCancel != nil {
 		a.downloadMu.Unlock()
