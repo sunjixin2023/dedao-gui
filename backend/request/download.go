@@ -2,10 +2,13 @@ package request
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -46,8 +49,8 @@ func DownloadWithContext(ctx context.Context, dl *DownloadTask) (err error) {
 	return one.DownloadWithContext(ctx, dl)
 }
 
-func Batch(tasks *DownloadTasks, concurrent int, eachTimeout time.Duration) *DownloadTasks {
-	return one.Batch(tasks, concurrent, eachTimeout)
+func Batch(ctx context.Context, tasks *DownloadTasks, concurrent int, eachTimeout time.Duration) error {
+	return one.Batch(ctx, tasks, concurrent, eachTimeout)
 }
 
 func (g *GetDownload) Download(task *DownloadTask, timeout time.Duration) (err error) {
@@ -58,6 +61,10 @@ func (g *GetDownload) Download(task *DownloadTask, timeout time.Duration) (err e
 }
 
 func (g *GetDownload) DownloadWithContext(ctx context.Context, task *DownloadTask) (err error) {
+	if task == nil {
+		return errors.New("nil download task")
+	}
+	task.Err = nil
 	if g.shouldSkip(ctx, task) {
 		if g.OnEachSkip != nil {
 			g.OnEachSkip(task)
@@ -78,100 +85,145 @@ func (g *GetDownload) DownloadWithContext(ctx context.Context, task *DownloadTas
 	if err != nil {
 		return
 	}
-	defer f.Close()
-
-	req, err := http.NewRequest(http.MethodGet, task.Link, nil)
-	if err != nil {
-		return
-	}
-	if s, e := f.Stat(); e == nil {
-		if s.Size() > 0 {
-			req.Header.Set("range", fmt.Sprintf("bytes=%d-", s.Size()))
-		}
-	}
-	for k := range g.Header {
-		req.Header[k] = g.Header[k]
-	}
-
-	rsp, err := g.Client.Do(req.WithContext(ctx))
-	if err != nil {
-		return
-	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, rsp.Body)
-		_ = rsp.Body.Close()
+		if f == nil {
+			return
+		}
+		err = errors.Join(err, f.Close())
 	}()
 
-	switch rsp.StatusCode {
-	case http.StatusPartialContent:
-		_, _ = f.Seek(0, io.SeekEnd)
-	case http.StatusOK, http.StatusRequestedRangeNotSatisfiable:
-		_ = f.Truncate(0)
-	default:
-		return fmt.Errorf("invalid status code %d(%s)", rsp.StatusCode, rsp.Status)
+	localSize, err := currentFileSize(f)
+	if err != nil {
+		return
+	}
+	attemptedRestart := false
+	lastModified := ""
+	expectedSize := int64(-1)
+
+	for {
+		req, reqErr := newRequestWithHeader(ctx, http.MethodGet, task.Link, g.Header)
+		if reqErr != nil {
+			return reqErr
+		}
+		if localSize > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", localSize))
+		}
+
+		rsp, rspErr := g.Client.Do(req)
+		if rspErr != nil {
+			return rspErr
+		}
+
+		restart, complete, rspExpectedSize, rspLastModified, handleErr := g.handleDownloadResponse(f, rsp, localSize)
+		if handleErr != nil {
+			return handleErr
+		}
+		lastModified = rspLastModified
+		if rspExpectedSize >= 0 {
+			expectedSize = rspExpectedSize
+		}
+		if restart {
+			if attemptedRestart {
+				return fmt.Errorf("cannot recover from invalid ranged response")
+			}
+			attemptedRestart = true
+			localSize = 0
+			continue
+		}
+		if complete {
+			break
+		}
+
+		localSize, err = currentFileSize(f)
+		if err != nil {
+			return err
+		}
+		break
 	}
 
-	if _, err := io.Copy(f, rsp.Body); err != nil {
-		return fmt.Errorf("copy error: %s", err)
+	if err := f.Sync(); err != nil {
+		return err
 	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	f = nil
 
-	if mt, e := http.ParseTime(rsp.Header.Get("last-modified")); e == nil {
-		_ = os.Chtimes(task.Path, mt, mt)
+	localSize, err = fileSize(task.Path)
+	if err != nil {
+		return err
 	}
-
-	if ok, e := os.Create(task.Path + ".ok"); e == nil {
-		_ = ok.Close()
+	if expectedSize < 0 {
+		return nil
 	}
-	return
+	if localSize != expectedSize {
+		return fmt.Errorf("download size %d does not match expected %d", localSize, expectedSize)
+	}
+	if lastModified != "" {
+		if mt, parseErr := http.ParseTime(lastModified); parseErr == nil {
+			_ = os.Chtimes(task.Path, mt, mt)
+		}
+	}
+	ok, err := os.Create(task.Path + ".ok")
+	if err != nil {
+		return err
+	}
+	return ok.Close()
 }
 
-func (g *GetDownload) Batch(tasks *DownloadTasks, concurrent int, eachTimeout time.Duration) *DownloadTasks {
-	var sema = semaphore.NewWeighted(int64(concurrent))
-	var grp errgroup.Group
+func (g *GetDownload) Batch(ctx context.Context, tasks *DownloadTasks, concurrent int, eachTimeout time.Duration) error {
+	if concurrent <= 0 {
+		return fmt.Errorf("concurrent must be greater than zero")
+	}
+	if tasks == nil {
+		return nil
+	}
 
-	tasks.ForEach(func(t *DownloadTask) {
-		_ = sema.Acquire(context.TODO(), 1)
-		grp.Go(func() (err error) {
+	group, groupCtx := errgroup.WithContext(ctx)
+	sema := semaphore.NewWeighted(int64(concurrent))
+
+	tasks.ForEach(func(task *DownloadTask) {
+		taskCopy := task
+		group.Go(func() error {
+			if taskCopy == nil {
+				return errors.New("nil download task")
+			}
+			if err := sema.Acquire(groupCtx, 1); err != nil {
+				taskCopy.Err = err
+				return err
+			}
 			defer sema.Release(1)
-			t.Err = g.Download(t, eachTimeout)
-			return
+			if err := groupCtx.Err(); err != nil {
+				taskCopy.Err = err
+				return err
+			}
+
+			taskCtx := groupCtx
+			cancel := func() {}
+			if eachTimeout > 0 {
+				taskCtx, cancel = context.WithTimeout(groupCtx, eachTimeout)
+			}
+			defer cancel()
+
+			taskCopy.Err = g.DownloadWithContext(taskCtx, taskCopy)
+			return taskCopy.Err
 		})
 	})
 
-	_ = grp.Wait()
-
-	return tasks
+	return group.Wait()
 }
 
 func (g *GetDownload) shouldSkip(ctx context.Context, task *DownloadTask) (skip bool) {
-	// check .ok file exist
-	fd, err := os.Open(task.Path + ".ok")
-	if err == nil {
-		_ = fd.Close()
-		return true
-	}
-
-	// check target file size
-	local, err := os.Stat(task.Path)
-	if err != nil {
+	_ = ctx
+	okInfo, err := os.Stat(task.Path + ".ok")
+	if err != nil || okInfo.IsDir() {
 		return false
 	}
-
-	switch local.Size() {
-	case 0:
-		return false
-	default:
-		req, err := http.NewRequest(http.MethodHead, task.Link, nil)
-		if err == nil {
-			req.Header = g.Header
-			rsp, err := g.Client.Do(req.WithContext(ctx))
-			if err == nil {
-				_ = rsp.Body.Close()
-				return rsp.ContentLength == local.Size()
-			}
-		}
+	fileInfo, err := os.Stat(task.Path)
+	if err != nil || fileInfo.IsDir() {
 		return false
 	}
+	return true
 }
 
 func NewDownloadTask(link, path string) *DownloadTask {
@@ -198,4 +250,171 @@ func (d *DownloadTasks) ForEach(f func(t *DownloadTask)) {
 
 func NewDownloadTasks() *DownloadTasks {
 	return &DownloadTasks{}
+}
+
+type contentRange struct {
+	Start int64
+	End   int64
+	Total int64
+}
+
+func currentFileSize(f *os.File) (int64, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
+func fileSize(path string) (int64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
+func (g *GetDownload) handleDownloadResponse(f *os.File, rsp *http.Response, localSize int64) (restart bool, complete bool, expectedSize int64, lastModified string, err error) {
+	lastModified = rsp.Header.Get("Last-Modified")
+	expectedSize = -1
+	closeWithErr := func(baseErr error) error {
+		closeErr := rsp.Body.Close()
+		if closeErr == nil {
+			return baseErr
+		}
+		if baseErr == nil {
+			return closeErr
+		}
+		return errors.Join(baseErr, closeErr)
+	}
+
+	switch rsp.StatusCode {
+	case http.StatusPartialContent:
+		rng, parseErr := parseContentRange(rsp.Header.Get("Content-Range"))
+		if parseErr != nil {
+			return false, false, -1, lastModified, closeWithErr(fmt.Errorf("resume Content-Range does not start at %d: %w", localSize, parseErr))
+		}
+		if rng.Start != localSize {
+			return false, false, -1, lastModified, closeWithErr(fmt.Errorf("resume Content-Range does not start at %d", localSize))
+		}
+		span := rng.End - rng.Start + 1
+		if rsp.ContentLength >= 0 && rsp.ContentLength != span {
+			return false, false, -1, lastModified, closeWithErr(fmt.Errorf("resume Content-Length %d does not match Content-Range span %d", rsp.ContentLength, span))
+		}
+		if _, err := f.Seek(0, io.SeekEnd); err != nil {
+			return false, false, -1, lastModified, closeWithErr(err)
+		}
+		sizeBeforeCopy := localSize
+		if _, err := io.Copy(f, rsp.Body); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return false, false, -1, lastModified, closeWithErr(err)
+			}
+			return false, false, -1, lastModified, closeWithErr(fmt.Errorf("copy error: %w", err))
+		}
+		sizeAfterCopy, err := currentFileSize(f)
+		if err != nil {
+			return false, false, -1, lastModified, closeWithErr(err)
+		}
+		actualSpan := sizeAfterCopy - sizeBeforeCopy
+		if actualSpan != span {
+			return false, false, rng.Total, lastModified, closeWithErr(fmt.Errorf("resume body wrote %d bytes for declared span %d", actualSpan, span))
+		}
+		if sizeAfterCopy != rng.Total {
+			return false, false, rng.Total, lastModified, closeWithErr(fmt.Errorf("download size %d does not match expected %d", sizeAfterCopy, rng.Total))
+		}
+		return false, false, rng.Total, lastModified, closeWithErr(nil)
+	case http.StatusOK:
+		if localSize > 0 {
+			if err := f.Truncate(0); err != nil {
+				return false, false, -1, lastModified, closeWithErr(err)
+			}
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return false, false, -1, lastModified, closeWithErr(err)
+			}
+			localSize = 0
+		}
+		if _, err := io.Copy(f, rsp.Body); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return false, false, -1, lastModified, closeWithErr(err)
+			}
+			return false, false, -1, lastModified, closeWithErr(fmt.Errorf("copy error: %w", err))
+		}
+		if rsp.ContentLength >= 0 {
+			expectedSize = rsp.ContentLength
+		}
+		return false, false, expectedSize, lastModified, closeWithErr(nil)
+	case http.StatusRequestedRangeNotSatisfiable:
+		if localSize == 0 {
+			return false, false, -1, lastModified, closeWithErr(fmt.Errorf("unexpected 416 without local partial"))
+		}
+		total, parseErr := parseUnsatisfiedTotal(rsp.Header.Get("Content-Range"))
+		if parseErr == nil && total == localSize {
+			return false, true, total, lastModified, closeWithErr(nil)
+		}
+		if err := f.Truncate(0); err != nil {
+			return false, false, -1, lastModified, closeWithErr(err)
+		}
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return false, false, -1, lastModified, closeWithErr(err)
+		}
+		return true, false, -1, lastModified, closeWithErr(nil)
+	default:
+		return false, false, -1, lastModified, closeWithErr(&StatusError{Code: rsp.StatusCode, URL: taskURL(rsp)})
+	}
+}
+
+func taskURL(rsp *http.Response) string {
+	if rsp.Request == nil || rsp.Request.URL == nil {
+		return ""
+	}
+	return rsp.Request.URL.String()
+}
+
+func parseContentRange(value string) (contentRange, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "bytes ") {
+		return contentRange{}, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	rangeAndTotal := strings.TrimPrefix(trimmed, "bytes ")
+	parts := strings.Split(rangeAndTotal, "/")
+	if len(parts) != 2 {
+		return contentRange{}, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	rangePart := strings.Split(parts[0], "-")
+	if len(rangePart) != 2 {
+		return contentRange{}, fmt.Errorf("invalid Content-Range %q", value)
+	}
+
+	start, err := parseRangeNumber(rangePart[0], value)
+	if err != nil {
+		return contentRange{}, err
+	}
+	end, err := parseRangeNumber(rangePart[1], value)
+	if err != nil {
+		return contentRange{}, err
+	}
+	total, err := parseRangeNumber(parts[1], value)
+	if err != nil {
+		return contentRange{}, err
+	}
+	if end < start || total <= end {
+		return contentRange{}, fmt.Errorf("invalid Content-Range %q", value)
+	}
+	return contentRange{Start: start, End: end, Total: total}, nil
+}
+
+func parseUnsatisfiedTotal(value string) (int64, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "bytes */") {
+		return 0, fmt.Errorf("invalid unsatisfied Content-Range %q", value)
+	}
+	return parseRangeNumber(strings.TrimPrefix(trimmed, "bytes */"), value)
+}
+
+func parseRangeNumber(value string, whole string) (int64, error) {
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("invalid Content-Range %q", whole)
+	}
+	return parsed, nil
 }

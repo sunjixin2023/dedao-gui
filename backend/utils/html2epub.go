@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/url"
@@ -115,7 +116,10 @@ func (h *HtmlToEpub) add(html HtmlContent) (err error) {
 		return
 	}
 
-	images := h.saveImages(doc)
+	images, err := h.saveImages(doc)
+	if err != nil {
+		return err
+	}
 	doc.Find("img").
 		Each(func(i int, img *goquery.Selection) {
 			h.changeRef(html.Content, img, refs, images)
@@ -140,7 +144,7 @@ func (h *HtmlToEpub) add(html HtmlContent) (err error) {
 	return
 }
 
-func (h *HtmlToEpub) saveImages(doc *goquery.Document) map[string]string {
+func (h *HtmlToEpub) saveImages(doc *goquery.Document) (map[string]string, error) {
 	downloads := make(map[string]string)
 
 	tasks := request.NewDownloadTasks()
@@ -166,13 +170,12 @@ func (h *HtmlToEpub) saveImages(doc *goquery.Document) map[string]string {
 		tasks.Add(src, localFile)
 		downloads[src] = localFile
 	})
-	request.Batch(tasks, 3, time.Minute*2).ForEach(func(t *request.DownloadTask) {
-		if t.Err != nil {
-			log.Printf("download %s fail: %s", t.Link, t.Err)
-		}
-	})
+	// This API does not currently accept a caller context; widen it when HtmlToEpub gains one.
+	if err := request.Batch(context.Background(), tasks, 3, time.Minute*2); err != nil {
+		return downloads, fmt.Errorf("download EPUB assets: %w", err)
+	}
 
-	return downloads
+	return downloads, nil
 }
 
 // TODO:
