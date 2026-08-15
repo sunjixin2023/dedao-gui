@@ -9,6 +9,8 @@ export function AlgoFilter(arg1:services.AlgoFilterParam):Promise<services.AlgoF
 
 export function AlgoProduct(arg1:services.AlgoFilterParam):Promise<services.AlgoProductResp>;
 
+export function AppVersion():Promise<string>;
+
 export function ArticleDetail(arg1:number,arg2:string):Promise<string>;
 
 export function ArticleList(arg1:string,arg2:string,arg3:number,arg4:number,arg5:boolean):Promise<services.ArticleList>;

@@ -10,6 +10,10 @@ export function AlgoProduct(arg1) {
   return window['go']['backend']['App']['AlgoProduct'](arg1);
 }
 
+export function AppVersion() {
+  return window['go']['backend']['App']['AppVersion']();
+}
+
 export function ArticleDetail(arg1, arg2) {
   return window['go']['backend']['App']['ArticleDetail'](arg1, arg2);
 }

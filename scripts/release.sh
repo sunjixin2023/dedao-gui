@@ -6,6 +6,8 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TARGET="auto"
 SKIP_INSTALL=0
 PACKAGE_OUTPUT=1
+VERSION=""
+WAILS_VERSION="$(tr -d '[:space:]' < "${ROOT_DIR}/.wails-version")"
 
 usage() {
   cat <<USAGE
@@ -20,7 +22,8 @@ Targets:
   linux/amd64
 
 Options:
-  --skip-install   Skip npm install/ci step
+  --version X.Y.Z  Set packaged build version metadata
+  --skip-install   Skip frontend dependency install step
   --no-package     Do not archive build output
   -h, --help       Show help
 USAGE
@@ -92,6 +95,15 @@ while [[ $# -gt 0 ]]; do
       SKIP_INSTALL=1
       shift
       ;;
+    --version)
+      if [[ $# -lt 2 ]]; then
+        echo "[ERROR] --version requires a value"
+        usage
+        exit 1
+      fi
+      VERSION="$2"
+      shift 2
+      ;;
     --no-package)
       PACKAGE_OUTPUT=0
       shift
@@ -134,25 +146,36 @@ echo "[INFO] Checking build dependencies..."
 require_cmd go
 require_cmd node
 require_cmd npm
+export PATH="$(go env GOPATH)/bin:${PATH}"
 
 if ! command -v wails >/dev/null 2>&1; then
   echo "[INFO] Wails CLI not found, installing..."
-  go install github.com/wailsapp/wails/v2/cmd/wails@latest
+  go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
   export PATH="$(go env GOPATH)/bin:${PATH}"
 fi
 require_cmd wails
 
 if [[ "${SKIP_INSTALL}" -eq 0 ]]; then
   echo "[INFO] Installing frontend dependencies..."
-  if [[ -f "${ROOT_DIR}/frontend/package-lock.json" ]]; then
-    npm --prefix frontend ci --no-fund --no-audit
-  else
-    npm --prefix frontend install --no-fund --no-audit
-  fi
+  npm --prefix frontend ci --no-fund --no-audit
+fi
+
+if [[ "${PACKAGE_OUTPUT}" -eq 1 && -z "${VERSION}" ]]; then
+  echo "[ERROR] --version X.Y.Z is required when packaging release artifacts"
+  usage
+  exit 1
+fi
+
+if [[ -n "${VERSION}" ]]; then
+  bash "${ROOT_DIR}/scripts/set-build-version.sh" "${VERSION}"
 fi
 
 echo "[INFO] Building application for ${TARGET}..."
-wails build --clean --platform "${TARGET}"
+wails_build_args=(build --clean --platform "${TARGET}")
+if [[ -n "${VERSION}" ]]; then
+  wails_build_args+=(-ldflags "-X github.com/yann0917/dedao-gui/backend.BuildVersion=${VERSION}")
+fi
+wails "${wails_build_args[@]}"
 echo "[OK] Build finished. Output directory: ${ROOT_DIR}/build/bin"
 
 if [[ "${PACKAGE_OUTPUT}" -eq 0 ]]; then
@@ -166,7 +189,7 @@ fi
 
 mkdir -p "${ROOT_DIR}/release"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BASENAME="dedao-${TARGET//\//-}-${STAMP}"
+BASENAME="dedao-${VERSION}-${TARGET//\//-}-${STAMP}"
 
 if [[ "${TARGET}" == windows/* ]]; then
   ARCHIVE_FILE="${ROOT_DIR}/release/${BASENAME}.zip"

@@ -11,8 +11,8 @@ help:
 	@echo "dedao quick commands"
 	@echo "  make bootstrap                 # install/verify dependencies"
 	@echo "  make run                       # run app in dev mode"
-	@echo "  make build                     # one-click build for current host + package artifact"
-	@echo "  make release PLATFORM=<target> # build for target platform + package artifact"
+	@echo "  make build VERSION=X.Y.Z       # one-click build for current host + package artifact"
+	@echo "  make release PLATFORM=<target> VERSION=X.Y.Z # build for target platform + package artifact"
 	@echo "  make deploy VERSION=vX.Y.Z     # create & push git tag to trigger release workflow"
 	@echo "  make clean                     # remove build output"
 	@echo ""
@@ -30,10 +30,10 @@ run:
 	@wails dev
 
 build:
-	@bash ./scripts/release.sh auto $(RELEASE_ARGS)
+	@bash ./scripts/release.sh auto $(if $(VERSION),--version $(VERSION),) $(RELEASE_ARGS)
 
 release:
-	@bash ./scripts/release.sh $(PLATFORM) $(RELEASE_ARGS)
+	@bash ./scripts/release.sh $(PLATFORM) $(if $(VERSION),--version $(VERSION),) $(RELEASE_ARGS)
 
 deploy:
 	@if [[ -z "$(VERSION)" ]]; then echo "VERSION is required, example: make deploy VERSION=v1.0.0"; exit 1; fi

@@ -12,13 +12,13 @@ This is a desktop application built with Wails v2 (Go + Vue.js) for downloading 
 
 ### Prerequisites
 - Go 1.23+
-- Node.js 18+
-- Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Node.js 22.23.1
+- Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1`
 
 ### Build & Development
 ```bash
 # Install frontend dependencies
-cd frontend && npm install
+npm ci --prefix frontend --no-fund --no-audit
 
 # Development mode (hot reload)
 wails dev

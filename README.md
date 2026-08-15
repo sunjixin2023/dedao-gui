@@ -68,8 +68,8 @@
 ### 环境要求
 
 1. 安装 Go 1.23 或更高版本
-2. 安装 Node.js 18+ 和 npm
-3. 安装 Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+2. 安装 Node.js 22.23.1 和 npm
+3. 安装 Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1`
 
 ### 构建步骤
 
@@ -89,21 +89,21 @@
 
 ```bash
 make bootstrap
-make build
+make build VERSION=1.0.0
 ```
 
 也可以指定目标平台构建：
 
 ```bash
-make release PLATFORM=darwin/universal
-make release PLATFORM=windows/amd64
-make release PLATFORM=linux/amd64
+make release PLATFORM=darwin/universal VERSION=1.0.0
+make release PLATFORM=windows/amd64 VERSION=1.0.0
+make release PLATFORM=linux/amd64 VERSION=1.0.0
 ```
 
 可选参数（传给 `scripts/release.sh`）：
 
 ```bash
-make build RELEASE_ARGS="--skip-install"
+make build VERSION=1.0.0 RELEASE_ARGS="--skip-install"
 make release PLATFORM=darwin/arm64 RELEASE_ARGS="--no-package"
 ```
 
@@ -142,7 +142,7 @@ git push origin v1.0.0
 项目运行需要以下依赖：
 
 * **Go** 1.23+ - 后端开发语言
-* **Node.js** 18+ - 前端运行环境
+* **Node.js** 22.23.1 - 前端运行环境（见 `.nvmrc`）
 * **npm** - 前端包管理器
 
 ### 可选依赖（根据需求安装）

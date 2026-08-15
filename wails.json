@@ -1,10 +1,13 @@
 {
   "name": "dedao",
   "outputfilename": "dedao",
-  "frontend:install": "npm install",
+  "frontend:install": "npm ci --no-audit --no-fund",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "info": {
+    "productVersion": "0.0.0"
+  },
   "author": {
     "name": "Yabo",
     "email": "386139859@qq.com"
