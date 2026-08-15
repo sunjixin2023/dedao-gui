@@ -224,11 +224,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          set +e
-          timeout --kill-after=5s 5s xvfb-run -a build/bin/dedao > smoke.log 2>&1
-          status="$?"
-          set -e
-          test "${status}" = "124"
+          smoke_pid=""
+          cleanup() {
+            if [[ -n "${smoke_pid}" ]] && kill -0 "${smoke_pid}" 2>/dev/null; then
+              kill "${smoke_pid}"
+              wait "${smoke_pid}" || true
+            fi
+          }
+          trap cleanup EXIT
+          xvfb-run -a build/bin/dedao > smoke.log 2>&1 &
+          smoke_pid=$!
+          sleep 5
+          kill -0 "${smoke_pid}"
+          kill "${smoke_pid}"
+          wait "${smoke_pid}" || true
+          smoke_pid=""
       - name: Package Unix archive
         if: runner.os != 'Windows'
         shell: bash
