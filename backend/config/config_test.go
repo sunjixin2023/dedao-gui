@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -43,7 +44,7 @@ func TestConfigInitializesMissingFile(t *testing.T) {
 	assertValidConfigJSON(t, configPath, "")
 }
 
-func TestConfigSaveProducesValidJSONAndMode0600(t *testing.T) {
+func TestConfigSaveProducesValidJSONAndPOSIXMode0600(t *testing.T) {
 	t.Parallel()
 
 	configPath := filepath.Join(t.TempDir(), Name)
@@ -68,6 +69,11 @@ func TestConfigSaveProducesValidJSONAndMode0600(t *testing.T) {
 	}
 
 	assertValidConfigJSON(t, configPath, "user-1")
+	// Windows reports synthesized POSIX mode bits; access control is inherited
+	// from the user's profile directory instead of represented as chmod(0600).
+	if runtime.GOOS == "windows" {
+		return
+	}
 
 	info, err := os.Stat(configPath)
 	if err != nil {
