@@ -153,6 +153,7 @@ assert_contains 'build_args=(--clean -skipbindings --platform "${{ matrix.platfo
 assert_contains 'build_args+=(-tags "${BUILD_TAGS}")' "${release_workflow}"
 assert_contains 'wails build "${build_args[@]}"' "${release_workflow}"
 assert_contains '"product_version": "{{.Info.ProductVersion}}"' "${windows_info}"
+assert_contains '"0409": {' "${windows_info}"
 assert_contains '$versionInfo.ProductMajorPart' "${release_workflow}"
 assert_contains '$versionInfo.ProductMinorPart' "${release_workflow}"
 assert_contains '$versionInfo.ProductBuildPart' "${release_workflow}"
