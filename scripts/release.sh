@@ -8,6 +8,11 @@ SKIP_INSTALL=0
 PACKAGE_OUTPUT=1
 VERSION=""
 WAILS_VERSION="$(tr -d '[:space:]' < "${ROOT_DIR}/.wails-version")"
+PROJECT_FILE="${ROOT_DIR}/wails.json"
+PROJECT_DIR="$(dirname "${PROJECT_FILE}")"
+PROJECT_NAME="$(basename "${PROJECT_FILE}")"
+LOCK_DIR="${PROJECT_DIR}/.${PROJECT_NAME}.release-lock"
+BACKUP_FILE=""
 
 usage() {
   cat <<USAGE
@@ -83,6 +88,40 @@ write_checksum() {
     return
   fi
   echo "[WARN] sha256 tool not found, skip checksum"
+}
+
+cleanup_version_state() {
+  local status=$?
+  trap - EXIT INT TERM HUP
+
+  if [[ -n "${BACKUP_FILE}" && -e "${BACKUP_FILE}" ]]; then
+    mv -f "${BACKUP_FILE}" "${PROJECT_FILE}"
+  fi
+
+  if [[ -d "${LOCK_DIR}" ]]; then
+    rmdir "${LOCK_DIR}" 2>/dev/null || true
+  fi
+
+  exit "${status}"
+}
+
+prepare_version_state() {
+  if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+    echo "[ERROR] Another release invocation is already managing ${PROJECT_FILE}" >&2
+    exit 1
+  fi
+
+  trap cleanup_version_state EXIT INT TERM HUP
+  BACKUP_FILE="${LOCK_DIR}/${PROJECT_NAME}.backup"
+  cp -p "${PROJECT_FILE}" "${BACKUP_FILE}"
+
+  WAILS_PROJECT_FILE="${PROJECT_FILE}" bash "${ROOT_DIR}/scripts/set-build-version.sh" "${VERSION}"
+
+  if [[ -n "${RELEASE_TEST_PAUSE_AFTER_VERSION_STAMP_FILE:-}" ]]; then
+    while [[ ! -f "${RELEASE_TEST_PAUSE_AFTER_VERSION_STAMP_FILE}" ]]; do
+      sleep 0.1
+    done
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -167,7 +206,7 @@ if [[ "${PACKAGE_OUTPUT}" -eq 1 && -z "${VERSION}" ]]; then
 fi
 
 if [[ -n "${VERSION}" ]]; then
-  bash "${ROOT_DIR}/scripts/set-build-version.sh" "${VERSION}"
+  prepare_version_state
 fi
 
 echo "[INFO] Building application for ${TARGET}..."
