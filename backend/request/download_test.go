@@ -28,13 +28,21 @@ func TestBatchRejectsNonPositiveConcurrency(t *testing.T) {
 }
 
 func TestBatchPropagatesTaskFailure(t *testing.T) {
+	slowStarted := make(chan struct{})
 	handlerErr := make(chan error, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/fail":
+			select {
+			case <-slowStarted:
+			case <-time.After(2 * time.Second):
+				handlerErr <- errors.New("slow handler did not start")
+				return
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("boom"))
 		case "/slow":
+			close(slowStarted)
 			<-r.Context().Done()
 			handlerErr <- r.Context().Err()
 		default:
