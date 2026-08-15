@@ -191,12 +191,13 @@ jobs:
             rm -f "${before_file}" "${after_file}"
           }
           trap cleanup EXIT
-          pgrep -f "${app_exec}" | sort -u > "${before_file}" || true
+          pgrep -f -x "${app_exec}" | sort -u > "${before_file}" || true
           open -n "${app_path}"
           sleep 5
-          pgrep -f "${app_exec}" | sort -u > "${after_file}" || true
+          pgrep -f -x "${app_exec}" | sort -u > "${after_file}" || true
           smoke_pid="$(comm -13 "${before_file}" "${after_file}" | head -n 1)"
           test -n "${smoke_pid}"
+          test "$(/bin/ps -p "${smoke_pid}" -o command= | sed 's/^ *//')" = "${app_exec}"
           kill -0 "${smoke_pid}"
           kill "${smoke_pid}"
           for _ in {1..10}; do
