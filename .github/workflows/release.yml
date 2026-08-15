@@ -277,7 +277,8 @@ jobs:
           $archive = "release/dedao-$env:VERSION-${{ matrix.asset_platform }}.${{ matrix.archive_extension }}"
           Compress-Archive -Path build/bin/* -DestinationPath $archive -Force
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content "$archive.sha256"
+          $checksum = "$hash  $([System.IO.Path]::GetFileName($archive))`n"
+          [System.IO.File]::WriteAllText("$archive.sha256", $checksum, [System.Text.UTF8Encoding]::new($false))
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
@@ -318,6 +319,10 @@ jobs:
           done
           (
             cd dist
+            if grep -q $'\r' "dedao-${VERSION}-windows-amd64.zip.sha256"; then
+              echo "Windows checksum sidecar must use LF line endings" >&2
+              exit 1
+            fi
             sha256sum -c "dedao-${VERSION}-macos-universal.tar.gz.sha256"
             sha256sum -c "dedao-${VERSION}-windows-amd64.zip.sha256"
             sha256sum -c "dedao-${VERSION}-linux-amd64.tar.gz.sha256"
