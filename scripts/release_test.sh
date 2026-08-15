@@ -6,6 +6,7 @@ test_root="$(mktemp -d /private/tmp/dedao-release-test.XXXXXX)"
 fake_bin="${test_root}/bin"
 pause_file="${test_root}/resume"
 wails_backup="${test_root}/wails.json.backup"
+release_workflow="${repo_root}/.github/workflows/release.yml"
 mkdir -p "${fake_bin}"
 
 cp "${repo_root}/wails.json" "${wails_backup}"
@@ -49,6 +50,15 @@ EOF
 
 chmod +x "${fake_bin}/go" "${fake_bin}/npm" "${fake_bin}/wails"
 
+assert_contains() {
+	local needle="$1"
+	local file="$2"
+	if ! grep -Fq -- "$needle" "$file"; then
+		echo "missing expected content in ${file}: ${needle}" >&2
+		exit 1
+	fi
+}
+
 run_release() {
 	PATH="${fake_bin}:${PATH}" bash "${repo_root}/scripts/release.sh" auto --skip-install --no-package --version 1.2.3
 }
@@ -77,3 +87,15 @@ fi
 touch "${pause_file}"
 wait "${first_pid}"
 cmp -s "${repo_root}/wails.json" "${wails_backup}"
+
+assert_contains 'wails build --clean -skipbindings --platform "${{ matrix.platform }}"' "${release_workflow}"
+assert_contains 'app_exec="${app_path}/Contents/MacOS/dedao"' "${release_workflow}"
+assert_contains '"${app_exec}" > smoke.log 2>&1 &' "${release_workflow}"
+assert_contains 'smoke_pid=$!' "${release_workflow}"
+assert_contains 'if [[ -n "${smoke_pid}" ]] && kill -0 "${smoke_pid}" 2>/dev/null; then' "${release_workflow}"
+assert_contains 'timeout --kill-after=5s 5s xvfb-run -a build/bin/dedao > smoke.log 2>&1' "${release_workflow}"
+assert_contains 'test "${status}" = "124"' "${release_workflow}"
+assert_contains "sha256sum -c 'dedao-\${VERSION}-macos-universal.tar.gz.sha256'" "${release_workflow}"
+assert_contains 'try {' "${release_workflow}"
+assert_contains '} finally {' "${release_workflow}"
+assert_contains 'if ($process -and -not $process.HasExited)' "${release_workflow}"

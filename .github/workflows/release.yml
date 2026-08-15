@@ -185,45 +185,6 @@ jobs:
           set -euo pipefail
           app_path="$(pwd)/build/bin/dedao.app"
           app_exec="${app_path}/Contents/MacOS/dedao"
-          before_file="$(mktemp)"
-          after_file="$(mktemp)"
-          cleanup() {
-            rm -f "${before_file}" "${after_file}"
-          }
-          trap cleanup EXIT
-          pgrep -f -x "${app_exec}" | sort -u > "${before_file}" || true
-          open -n "${app_path}"
-          sleep 5
-          pgrep -f -x "${app_exec}" | sort -u > "${after_file}" || true
-          smoke_pid="$(comm -13 "${before_file}" "${after_file}" | head -n 1)"
-          test -n "${smoke_pid}"
-          test "$(/bin/ps -p "${smoke_pid}" -o command= | sed 's/^ *//')" = "${app_exec}"
-          kill -0 "${smoke_pid}"
-          kill "${smoke_pid}"
-          for _ in {1..10}; do
-            if ! kill -0 "${smoke_pid}" 2>/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "failed to stop smoke process ${smoke_pid}" >&2
-          exit 1
-      - name: Smoke test Windows app
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $process = Start-Process -FilePath build/bin/dedao.exe -PassThru
-          Start-Sleep -Seconds 5
-          if ($process.HasExited) {
-            throw "dedao exited during smoke check with $($process.ExitCode)"
-          }
-          Stop-Process -Id $process.Id -Force
-          $process.WaitForExit()
-      - name: Smoke test Linux app
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
           smoke_pid=""
           cleanup() {
             if [[ -n "${smoke_pid}" ]] && kill -0 "${smoke_pid}" 2>/dev/null; then
@@ -232,13 +193,42 @@ jobs:
             fi
           }
           trap cleanup EXIT
-          xvfb-run -a build/bin/dedao > smoke.log 2>&1 &
+          "${app_exec}" > smoke.log 2>&1 &
           smoke_pid=$!
           sleep 5
           kill -0 "${smoke_pid}"
           kill "${smoke_pid}"
           wait "${smoke_pid}" || true
           smoke_pid=""
+      - name: Smoke test Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $process = $null
+          try {
+            $process = Start-Process -FilePath build/bin/dedao.exe -PassThru
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+              throw "dedao exited during smoke check with $($process.ExitCode)"
+            }
+            Stop-Process -Id $process.Id -Force
+            $process.WaitForExit()
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              $process.WaitForExit()
+            }
+          }
+      - name: Smoke test Linux app
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          timeout --kill-after=5s 5s xvfb-run -a build/bin/dedao > smoke.log 2>&1
+          status="$?"
+          set -e
+          test "${status}" = "124"
       - name: Package Unix archive
         if: runner.os != 'Windows'
         shell: bash
@@ -300,6 +290,12 @@ jobs:
           for path in "${expected[@]}"; do
             test -f "${path}"
           done
+          (
+            cd dist
+            sha256sum -c 'dedao-${VERSION}-macos-universal.tar.gz.sha256'
+            sha256sum -c 'dedao-${VERSION}-windows-amd64.zip.sha256'
+            sha256sum -c 'dedao-${VERSION}-linux-amd64.tar.gz.sha256'
+          )
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
