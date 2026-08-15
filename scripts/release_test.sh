@@ -9,6 +9,13 @@ wails_backup="${test_root}/wails.json.backup"
 release_workflow="${repo_root}/.github/workflows/release.yml"
 mkdir -p "${fake_bin}"
 
+expected_package_md5="$(tr -d '[:space:]' < "${repo_root}/frontend/package.json.md5")"
+actual_package_md5="$(node -e 'const crypto = require("node:crypto"); const fs = require("node:fs"); process.stdout.write(crypto.createHash("md5").update(fs.readFileSync(process.argv[1])).digest("hex"))' "${repo_root}/frontend/package.json")"
+if [[ "${expected_package_md5}" != "${actual_package_md5}" ]]; then
+	echo "frontend/package.json.md5 is stale" >&2
+	exit 1
+fi
+
 cp "${repo_root}/wails.json" "${wails_backup}"
 cleanup() {
 	cp "${wails_backup}" "${repo_root}/wails.json"
