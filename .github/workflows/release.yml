@@ -5,96 +5,275 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version in X.Y.Z form
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macos-universal
-            os: macos-14
-            platform: darwin/universal
-            artifact: dedao-macos-universal
-            archive: tar
-          - name: windows-amd64
-            os: windows-latest
-            platform: windows/amd64
-            artifact: dedao-windows-amd64
-            archive: zip
-          - name: linux-amd64
-            os: ubuntu-24.04
-            platform: linux/amd64
-            artifact: dedao-linux-amd64
-            archive: tar
-
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${INPUT_VERSION}"
+            test -n "${version}"
+          else
+            test "${REF_TYPE}" = "tag"
+            version="${REF_NAME#v}"
+          fi
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+          [[ "${version}" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ ]]
+
+          if [[ "${REF_TYPE}" == "tag" ]]; then
+            test "${REF_NAME}" = "v${version}"
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag_name=v${version}" >> "${GITHUB_OUTPUT}"
+
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          cache: true
+      - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: go mod download
+      - run: npm --prefix frontend ci --no-audit --no-fund
+      - name: Check credentials
+        run: bash scripts/secret-check.sh --history
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t go_files < <(git ls-files -z '*.go')
+          if ((${#go_files[@]} == 0)); then
+            exit 0
+          fi
+          files="$(printf '%s\0' "${go_files[@]}" | xargs -0 gofmt -l)"
+          test -z "${files}"
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - run: npm --prefix frontend run build
 
+  race:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - run: go test -race ./backend/... -count=1
+
+  build:
+    name: Build (${{ matrix.asset_platform }})
+    needs: [metadata, verify, race]
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin/universal
+            asset_platform: macos-universal
+            archive_extension: tar.gz
+          - os: windows-2022
+            platform: windows/amd64
+            asset_platform: windows-amd64
+            archive_extension: zip
+          - os: ubuntu-24.04
+            platform: linux/amd64
+            asset_platform: linux-amd64
+            archive_extension: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: go mod download
+      - run: npm --prefix frontend ci --no-audit --no-fund
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
           if apt-cache show libwebkit2gtk-4.1-dev >/dev/null 2>&1; then
             sudo apt-get install -y libwebkit2gtk-4.1-dev
           else
             sudo apt-get install -y libwebkit2gtk-4.0-dev
           fi
-
       - name: Install Wails
         shell: bash
         run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Install frontend dependencies
-        run: npm --prefix frontend ci
-
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < .wails-version)"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${version}"
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Verify tests on build host
+        run: go test ./... -count=1
+      - name: Stamp version
+        shell: bash
+        run: bash scripts/set-build-version.sh "${VERSION}"
       - name: Build application
-        run: wails build --clean --platform ${{ matrix.platform }}
-
-      - name: Package archive (tar)
-        if: matrix.archive == 'tar'
         shell: bash
         run: |
+          set -euo pipefail
+          wails build --clean --platform "${{ matrix.platform }}" \
+            -ldflags "-X github.com/yann0917/dedao-gui/backend.BuildVersion=${VERSION}"
+      - name: Assert macOS bundle version
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/bin/dedao.app/Contents/Info.plist)" = "${VERSION}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/bin/dedao.app/Contents/Info.plist)" = "${VERSION}"
+      - name: Assert Windows product version
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ((Get-Item build/bin/dedao.exe).VersionInfo.ProductVersion -ne $env:VERSION) {
+            throw "build/bin/dedao.exe ProductVersion does not match $env:VERSION"
+          }
+      - name: Smoke test macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(pwd)/build/bin/dedao.app"
+          app_exec="${app_path}/Contents/MacOS/dedao"
+          before_file="$(mktemp)"
+          after_file="$(mktemp)"
+          cleanup() {
+            rm -f "${before_file}" "${after_file}"
+          }
+          trap cleanup EXIT
+          pgrep -f "${app_exec}" | sort -u > "${before_file}" || true
+          open -n "${app_path}"
+          sleep 5
+          pgrep -f "${app_exec}" | sort -u > "${after_file}" || true
+          smoke_pid="$(comm -13 "${before_file}" "${after_file}" | head -n 1)"
+          test -n "${smoke_pid}"
+          kill -0 "${smoke_pid}"
+          kill "${smoke_pid}"
+          for _ in {1..10}; do
+            if ! kill -0 "${smoke_pid}" 2>/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "failed to stop smoke process ${smoke_pid}" >&2
+          exit 1
+      - name: Smoke test Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath build/bin/dedao.exe -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) {
+            throw "dedao exited during smoke check with $($process.ExitCode)"
+          }
+          Stop-Process -Id $process.Id -Force
+          $process.WaitForExit()
+      - name: Smoke test Linux app
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_pid=""
+          cleanup() {
+            if [[ -n "${smoke_pid}" ]] && kill -0 "${smoke_pid}" 2>/dev/null; then
+              kill "${smoke_pid}"
+              wait "${smoke_pid}" || true
+            fi
+          }
+          trap cleanup EXIT
+          xvfb-run -a build/bin/dedao > smoke.log 2>&1 &
+          smoke_pid=$!
+          sleep 5
+          kill -0 "${smoke_pid}"
+          kill "${smoke_pid}"
+          wait "${smoke_pid}" || true
+          smoke_pid=""
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p release
-          tar -czf "release/${{ matrix.artifact }}.tar.gz" -C build/bin .
-
-      - name: Package archive (zip)
-        if: matrix.archive == 'zip'
+          archive="release/dedao-${VERSION}-${{ matrix.asset_platform }}.${{ matrix.archive_extension }}"
+          tar -czf "${archive}" -C build/bin .
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            test -x build/bin/dedao
+            [[ "$(basename "${archive}")" == "dedao-${VERSION}-${{ matrix.asset_platform }}.${{ matrix.archive_extension }}" ]]
+          fi
+          hash="$(shasum -a 256 "${archive}" | awk '{print tolower($1)}')"
+          printf '%s  %s\n' "${hash}" "$(basename "${archive}")" > "${archive}.sha256"
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Copy-Item -Path build/bin/dedao.exe -Destination "release/${{ matrix.artifact }}.exe" -Force
-          Compress-Archive -Path build/bin/* -DestinationPath "release/${{ matrix.artifact }}.zip" -Force
-
+          $archive = "release/dedao-$env:VERSION-${{ matrix.asset_platform }}.${{ matrix.archive_extension }}"
+          Compress-Archive -Path build/bin/* -DestinationPath $archive -Force
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content "$archive.sha256"
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: release/*
+          name: dedao-${{ matrix.asset_platform }}
+          path: |
+            release/dedao-${{ env.VERSION }}-${{ matrix.asset_platform }}.${{ matrix.archive_extension }}
+            release/dedao-${{ env.VERSION }}-${{ matrix.asset_platform }}.${{ matrix.archive_extension }}.sha256
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v') && always()
-    needs: build
-    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [metadata, build]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -103,9 +282,33 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-
+      - name: Assert release payload
+        shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          expected=(
+            "dist/dedao-${VERSION}-macos-universal.tar.gz"
+            "dist/dedao-${VERSION}-macos-universal.tar.gz.sha256"
+            "dist/dedao-${VERSION}-windows-amd64.zip"
+            "dist/dedao-${VERSION}-windows-amd64.zip.sha256"
+            "dist/dedao-${VERSION}-linux-amd64.tar.gz"
+            "dist/dedao-${VERSION}-linux-amd64.tar.gz.sha256"
+          )
+          for path in "${expected[@]}"; do
+            test -f "${path}"
+          done
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
-          files: dist/*
+          tag_name: ${{ needs.metadata.outputs.tag_name }}
+          files: |
+            dist/dedao-${{ needs.metadata.outputs.version }}-macos-universal.tar.gz
+            dist/dedao-${{ needs.metadata.outputs.version }}-macos-universal.tar.gz.sha256
+            dist/dedao-${{ needs.metadata.outputs.version }}-windows-amd64.zip
+            dist/dedao-${{ needs.metadata.outputs.version }}-windows-amd64.zip.sha256
+            dist/dedao-${{ needs.metadata.outputs.version }}-linux-amd64.tar.gz
+            dist/dedao-${{ needs.metadata.outputs.version }}-linux-amd64.tar.gz.sha256
+          body: |
+            这些自动构建产物未配置 Apple 公证或 Windows 代码签名证书，属于未签名测试包。请使用随附的 SHA-256 文件校验下载完整性。
