@@ -162,7 +162,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          wails build --clean --platform "${{ matrix.platform }}" \
+          wails build --clean -skipbindings --platform "${{ matrix.platform }}" \
             -ldflags "-X github.com/yann0917/dedao-gui/backend.BuildVersion=${VERSION}"
       - name: Assert macOS bundle version
         if: runner.os == 'macOS'

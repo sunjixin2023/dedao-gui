@@ -35,6 +35,10 @@ EOF
 cat > "${fake_bin}/wails" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ " $* " != *" -skipbindings "* ]]; then
+	echo "release build must use the reviewed committed bindings" >&2
+	exit 92
+fi
 if [[ -n "${FAKE_WAILS_WAIT_FILE:-}" ]]; then
 	while [[ ! -f "${FAKE_WAILS_WAIT_FILE}" ]]; do
 		sleep 0.1

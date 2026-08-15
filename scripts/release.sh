@@ -210,7 +210,7 @@ if [[ -n "${VERSION}" ]]; then
 fi
 
 echo "[INFO] Building application for ${TARGET}..."
-wails_build_args=(build --clean --platform "${TARGET}")
+wails_build_args=(build --clean -skipbindings --platform "${TARGET}")
 if [[ -n "${VERSION}" ]]; then
   wails_build_args+=(-ldflags "-X github.com/yann0917/dedao-gui/backend.BuildVersion=${VERSION}")
 fi
