@@ -180,8 +180,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if ((Get-Item build/bin/dedao.exe).VersionInfo.ProductVersion -ne $env:VERSION) {
-            throw "build/bin/dedao.exe ProductVersion does not match $env:VERSION"
+          $versionInfo = (Get-Item build/bin/dedao.exe).VersionInfo
+          $expectedParts = $env:VERSION.Split('.') | ForEach-Object { [int]$_ }
+          $actualProductVersion = $versionInfo.ProductVersion.Trim()
+          if ($actualProductVersion -ne $env:VERSION) {
+            throw "build/bin/dedao.exe ProductVersion '$actualProductVersion' does not match '$env:VERSION'"
+          }
+          if (
+            $versionInfo.ProductMajorPart -ne $expectedParts[0] -or
+            $versionInfo.ProductMinorPart -ne $expectedParts[1] -or
+            $versionInfo.ProductBuildPart -ne $expectedParts[2] -or
+            $versionInfo.ProductPrivatePart -ne 0
+          ) {
+            throw "build/bin/dedao.exe fixed product version does not match '$env:VERSION.0'"
           }
       - name: Smoke test macOS app
         if: runner.os == 'macOS'
@@ -268,7 +279,7 @@ jobs:
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
           "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content "$archive.sha256"
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dedao-${{ matrix.asset_platform }}
           path: |
@@ -284,7 +295,7 @@ jobs:
       contents: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
