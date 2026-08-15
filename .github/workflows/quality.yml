@@ -1,0 +1,53 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: go mod download
+      - run: npm --prefix frontend ci --no-audit --no-fund
+      - name: Check credentials
+        run: bash scripts/secret-check.sh
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          mapfile -d '' -t go_files < <(git ls-files -z '*.go')
+          if ((${#go_files[@]} == 0)); then
+            exit 0
+          fi
+          files="$(printf '%s\0' "${go_files[@]}" | xargs -0 gofmt -l)"
+          test -z "${files}"
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - run: npm --prefix frontend run build
+
+  race:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - run: go test -race ./backend/... -count=1
