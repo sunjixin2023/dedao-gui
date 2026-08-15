@@ -8,6 +8,7 @@ pause_file="${test_root}/resume"
 wails_backup="${test_root}/wails.json.backup"
 release_workflow="${repo_root}/.github/workflows/release.yml"
 quality_workflow="${repo_root}/.github/workflows/quality.yml"
+codeql_workflow="${repo_root}/.github/workflows/codeql.yml"
 mkdir -p "${fake_bin}"
 
 expected_package_md5="$(tr -d '[:space:]' < "${repo_root}/frontend/package.json.md5")"
@@ -63,6 +64,15 @@ assert_contains() {
 	local file="$2"
 	if ! grep -Fq -- "$needle" "$file"; then
 		echo "missing expected content in ${file}: ${needle}" >&2
+		exit 1
+	fi
+}
+
+assert_not_contains() {
+	local needle="$1"
+	local file="$2"
+	if grep -Fq -- "$needle" "$file"; then
+		echo "unexpected content in ${file}: ${needle}" >&2
 		exit 1
 	fi
 }
@@ -148,6 +158,17 @@ assert_contains 'sha256sum -c "dedao-${VERSION}-linux-amd64.tar.gz.sha256"' "${r
 assert_contains 'try {' "${release_workflow}"
 assert_contains '} finally {' "${release_workflow}"
 assert_contains 'if ($process -and -not $process.HasExited)' "${release_workflow}"
+
+for workflow in "${quality_workflow}" "${release_workflow}" "${codeql_workflow}"; do
+	assert_contains 'uses: actions/checkout@v7' "${workflow}"
+	assert_not_contains 'uses: actions/checkout@v4' "${workflow}"
+done
+for workflow in "${quality_workflow}" "${release_workflow}"; do
+	assert_contains 'uses: actions/setup-go@v7' "${workflow}"
+	assert_contains 'uses: actions/setup-node@v7' "${workflow}"
+	assert_not_contains 'uses: actions/setup-go@v5' "${workflow}"
+	assert_not_contains 'uses: actions/setup-node@v4' "${workflow}"
+done
 
 assert_line_before '- run: npm --prefix frontend run build' '- run: go vet ./...' "${quality_workflow}"
 assert_line_before '- run: npm --prefix frontend run build' '- run: go test ./... -count=1' "${quality_workflow}"
