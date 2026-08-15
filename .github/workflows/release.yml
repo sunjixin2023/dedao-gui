@@ -80,9 +80,9 @@ jobs:
           fi
           files="$(printf '%s\0' "${go_files[@]}" | xargs -0 gofmt -l)"
           test -z "${files}"
+      - run: npm --prefix frontend run build
       - run: go vet ./...
       - run: go test ./... -count=1
-      - run: npm --prefix frontend run build
 
   race:
     strategy:
@@ -134,6 +134,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: go mod download
       - run: npm --prefix frontend ci --no-audit --no-fund
+      - run: npm --prefix frontend run build
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         shell: bash

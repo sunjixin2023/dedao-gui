@@ -7,6 +7,7 @@ fake_bin="${test_root}/bin"
 pause_file="${test_root}/resume"
 wails_backup="${test_root}/wails.json.backup"
 release_workflow="${repo_root}/.github/workflows/release.yml"
+quality_workflow="${repo_root}/.github/workflows/quality.yml"
 mkdir -p "${fake_bin}"
 
 expected_package_md5="$(tr -d '[:space:]' < "${repo_root}/frontend/package.json.md5")"
@@ -66,6 +67,45 @@ assert_contains() {
 	fi
 }
 
+line_of() {
+	local needle="$1"
+	local file="$2"
+	local match
+	match="$(grep -nF -- "$needle" "$file" | head -n 1 || true)"
+	if [[ -z "${match}" ]]; then
+		echo "missing expected line in ${file}: ${needle}" >&2
+		exit 1
+	fi
+	echo "${match%%:*}"
+}
+
+line_of_occurrence() {
+	local needle="$1"
+	local file="$2"
+	local occurrence="$3"
+	local match
+	match="$(grep -nF -- "$needle" "$file" | sed -n "${occurrence}p" || true)"
+	if [[ -z "${match}" ]]; then
+		echo "missing expected occurrence ${occurrence} in ${file}: ${needle}" >&2
+		exit 1
+	fi
+	echo "${match%%:*}"
+}
+
+assert_line_before() {
+	local earlier="$1"
+	local later="$2"
+	local file="$3"
+	local earlier_line
+	local later_line
+	earlier_line="$(line_of "$earlier" "$file")"
+	later_line="$(line_of "$later" "$file")"
+	if (( earlier_line >= later_line )); then
+		echo "expected line order in ${file}: ${earlier} before ${later}" >&2
+		exit 1
+	fi
+}
+
 run_release() {
 	PATH="${fake_bin}:${PATH}" bash "${repo_root}/scripts/release.sh" auto --skip-install --no-package --version 1.2.3
 }
@@ -108,3 +148,15 @@ assert_contains 'sha256sum -c "dedao-${VERSION}-linux-amd64.tar.gz.sha256"' "${r
 assert_contains 'try {' "${release_workflow}"
 assert_contains '} finally {' "${release_workflow}"
 assert_contains 'if ($process -and -not $process.HasExited)' "${release_workflow}"
+
+assert_line_before '- run: npm --prefix frontend run build' '- run: go vet ./...' "${quality_workflow}"
+assert_line_before '- run: npm --prefix frontend run build' '- run: go test ./... -count=1' "${quality_workflow}"
+assert_line_before '- run: npm --prefix frontend run build' '- run: go vet ./...' "${release_workflow}"
+assert_line_before '- run: npm --prefix frontend run build' '- run: go test ./... -count=1' "${release_workflow}"
+
+build_step_line_2="$(line_of_occurrence '- run: npm --prefix frontend run build' "${release_workflow}" 2)"
+host_test_line="$(line_of '      - name: Verify tests on build host' "${release_workflow}")"
+if (( build_step_line_2 >= host_test_line )); then
+	echo "expected second frontend build in ${release_workflow} before Verify tests on build host" >&2
+	exit 1
+fi

@@ -41,9 +41,9 @@ jobs:
           fi
           files="$(printf '%s\0' "${go_files[@]}" | xargs -0 gofmt -l)"
           test -z "${files}"
+      - run: npm --prefix frontend run build
       - run: go vet ./...
       - run: go test ./... -count=1
-      - run: npm --prefix frontend run build
 
   race:
     strategy:
