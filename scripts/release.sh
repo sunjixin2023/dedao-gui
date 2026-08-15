@@ -188,8 +188,7 @@ if [[ ! -d "${ROOT_DIR}/build/bin" ]]; then
 fi
 
 mkdir -p "${ROOT_DIR}/release"
-STAMP="$(date +%Y%m%d-%H%M%S)"
-BASENAME="dedao-${VERSION}-${TARGET//\//-}-${STAMP}"
+BASENAME="dedao-${VERSION}-${TARGET//\//-}"
 
 if [[ "${TARGET}" == windows/* ]]; then
   ARCHIVE_FILE="${ROOT_DIR}/release/${BASENAME}.zip"
