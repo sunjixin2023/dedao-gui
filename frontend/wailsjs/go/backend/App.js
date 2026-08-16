@@ -150,6 +150,14 @@ export function GetVolcPlayInfo(arg1) {
   return window['go']['backend']['App']['GetVolcPlayInfo'](arg1);
 }
 
+export function GetVolcPlayInfoByToken(arg1, arg2) {
+  return window['go']['backend']['App']['GetVolcPlayInfoByToken'](arg1, arg2);
+}
+
+export function GetVolcPrivateDrmAuthToken(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['GetVolcPrivateDrmAuthToken'](arg1, arg2, arg3, arg4);
+}
+
 export function KnowledgeCreateNote(arg1, arg2) {
   return window['go']['backend']['App']['KnowledgeCreateNote'](arg1, arg2);
 }

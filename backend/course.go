@@ -99,3 +99,14 @@ func (a *App) GetVolcPlayInfo(query string) (info *services.VodPlayInfoResp, err
 	}
 	return
 }
+
+func (a *App) GetVolcPrivateDrmAuthToken(keyToken, playAuthIDs, vid, unionInfo string) (token string, err error) {
+	return Instance.GetVolcPrivateDrmAuthToken(keyToken, playAuthIDs, vid, unionInfo)
+}
+
+func (a *App) GetVolcPlayInfoByToken(vid, playAuthToken string) (*services.VodPlayInfoResp, error) {
+	return Instance.GetVolcPlayInfoByFormat(services.VolcFormat{
+		VolcId:            vid,
+		VolcPlayAuthToken: playAuthToken,
+	})
+}

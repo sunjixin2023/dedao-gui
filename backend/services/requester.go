@@ -665,16 +665,18 @@ func (s *Service) reqVolc(mediaID, securityToken string) (io.ReadCloser, error) 
 }
 
 func (s *Service) reqVolcGetPlayInfo(query string) (io.ReadCloser, error) {
+	return s.reqVolcQuery(query)
+}
+
+func (s *Service) reqVolcQuery(query string) (io.ReadCloser, error) {
 	cookies := s.client.Cookies
 	client := resty.New()
 	client.SetCookies(cookies).
 		SetHeaderVerbatim("User-Agent", UserAgent).
 		SetHeaderVerbatim("Xi-DT", "web")
-	client.SetBaseURL("https://vod.volcengineapi.com")
 	resp, err := client.
 		R().
-		SetQueryString("Action=GetPlayInfo&Version=2020-08-01&" + query).
-		Get("")
+		Get("https://vod.volcengineapi.com/?" + query)
 	return handleHTTPResponse(resp, err)
 }
 

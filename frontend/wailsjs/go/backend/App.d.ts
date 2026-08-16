@@ -79,6 +79,10 @@ export function GetVolcPlayAuthToken(arg1:string,arg2:string):Promise<services.M
 
 export function GetVolcPlayInfo(arg1:string):Promise<services.VodPlayInfoResp>;
 
+export function GetVolcPlayInfoByToken(arg1:string,arg2:string):Promise<services.VodPlayInfoResp>;
+
+export function GetVolcPrivateDrmAuthToken(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
 export function KnowledgeCreateNote(arg1:string,arg2:string):Promise<services.CreateNoteResp>;
 
 export function LiveBase(arg1:string):Promise<services.LiveBase>;

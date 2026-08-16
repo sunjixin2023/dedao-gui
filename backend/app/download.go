@@ -552,18 +552,11 @@ func buildVideoStreams(svc *services.Service, mediaID, securityToken string) (ma
 	var lastErr error
 	for _, track := range volc.Tracks {
 		for _, format := range track.Formats {
-			vid := strings.TrimSpace(format.VolcId)
-			playAuthToken := strings.TrimSpace(format.VolcPlayAuthToken)
-			if vid == "" || playAuthToken == "" {
+			if strings.TrimSpace(format.VolcId) == "" || strings.TrimSpace(format.VolcPlayAuthToken) == "" {
 				continue
 			}
 
-			query := fmt.Sprintf(
-				"Vid=%s&PlayAuthToken=%s&Ssl=1",
-				url.QueryEscape(vid),
-				url.QueryEscape(playAuthToken),
-			)
-			info, err := svc.GetVolcPlayInfo(query)
+			info, err := svc.GetVolcPlayInfoByFormat(format)
 			if err != nil {
 				lastErr = err
 				continue

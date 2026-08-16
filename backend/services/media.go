@@ -1,6 +1,13 @@
 package services
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -105,6 +112,11 @@ type VolcFormat struct {
 	VolcId            string `json:"volc_id"`
 	VolcPlayAuthToken string `json:"volc_play_auth_token"`
 	VolcKeyToken      string `json:"volc_key_token"`
+}
+
+type volcPlayAuthEnvelope struct {
+	TokenVersion     string `json:"TokenVersion"`
+	GetPlayInfoToken string `json:"GetPlayInfoToken"`
 }
 
 // VodPlayInfoResp 获取播放地址
@@ -228,13 +240,127 @@ func (s *Service) GetVolcPlayAuthToken(mediaIDStr, securityToken string) (info *
 
 // GetVolcPlayInfo  火山引擎点播
 func (s *Service) GetVolcPlayInfo(query string) (info *VodPlayInfoResp, err error) {
+	query, err = normalizeVolcActionQuery(query, "GetPlayInfo")
+	if err != nil {
+		return nil, err
+	}
 	body, err := s.reqVolcGetPlayInfo(query)
 	if err != nil {
 		return
 	}
 	defer body.Close()
-	if err = handleJSONParse(body, &info); err != nil {
+	if err = decodeVolcJSON(body, &info); err != nil {
 		return
 	}
 	return
+}
+
+func (s *Service) GetVolcPlayInfoByFormat(format VolcFormat) (*VodPlayInfoResp, error) {
+	query, err := volcPlayInfoQuery(format)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetVolcPlayInfo(query)
+}
+
+func (s *Service) GetVolcPrivateDrmAuthToken(keyToken, playAuthIDs, vid, unionInfo string) (string, error) {
+	return volcPrivateDrmQuery(keyToken, playAuthIDs, vid, unionInfo)
+}
+
+func decodeVolcJSON(reader io.Reader, target interface{}) error {
+	if err := json.NewDecoder(reader).Decode(target); err != nil {
+		return fmt.Errorf("解析火山点播响应: %w", err)
+	}
+	return nil
+}
+
+func volcPlayInfoQuery(format VolcFormat) (string, error) {
+	vid := strings.TrimSpace(format.VolcId)
+	token := strings.TrimSpace(format.VolcPlayAuthToken)
+	if vid == "" || token == "" {
+		return "", errors.New("火山点播 Vid 或 playAuthToken 为空")
+	}
+
+	decoded, decodeErr := base64.StdEncoding.DecodeString(token)
+	if decodeErr == nil {
+		var envelope volcPlayAuthEnvelope
+		if json.Unmarshal(decoded, &envelope) == nil && strings.EqualFold(envelope.TokenVersion, "V2") {
+			query := strings.TrimSpace(envelope.GetPlayInfoToken)
+			if query == "" {
+				return "", errors.New("V2 playAuthToken 缺少 GetPlayInfoToken")
+			}
+			values, err := validateVolcActionQuery(query, "GetPlayInfo")
+			if err != nil {
+				return "", err
+			}
+			if values.Get("Vid") != vid {
+				return "", fmt.Errorf("V2 playAuthToken Vid 与媒体 Vid 不一致")
+			}
+			return query, nil
+		}
+	}
+
+	return url.Values{
+		"Vid":           {vid},
+		"PlayAuthToken": {token},
+		"Ssl":           {"1"},
+	}.Encode(), nil
+}
+
+func volcPrivateDrmQuery(keyToken, playAuthIDs, vid, unionInfo string) (string, error) {
+	query := strings.TrimSpace(keyToken)
+	playAuthIDs = strings.TrimSpace(playAuthIDs)
+	vid = strings.TrimSpace(vid)
+	unionInfo = strings.TrimSpace(unionInfo)
+	if query == "" || playAuthIDs == "" || vid == "" || unionInfo == "" {
+		return "", errors.New("私有加密播放参数不完整")
+	}
+	values, err := validateVolcActionQuery(query, "GetPrivateDrmPlayAuth")
+	if err != nil {
+		return "", err
+	}
+	if values.Get("Vid") != vid {
+		return "", errors.New("私有加密凭证 Vid 与播放器 Vid 不一致")
+	}
+	runtimeValues := url.Values{
+		"DrmType":     {"webdevice"},
+		"PlayAuthIds": {playAuthIDs},
+		"UnionInfo":   {unionInfo},
+	}
+	return query + "&" + runtimeValues.Encode(), nil
+}
+
+func normalizeVolcActionQuery(query, expectedAction string) (string, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", errors.New("火山点播请求参数为空")
+	}
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return "", fmt.Errorf("解析火山点播请求参数: %w", err)
+	}
+	if values.Get("Action") == "" {
+		return "Action=" + url.QueryEscape(expectedAction) + "&Version=2020-08-01&" + query, nil
+	}
+	if _, err := validateVolcActionQuery(query, expectedAction); err != nil {
+		return "", err
+	}
+	return query, nil
+}
+
+func validateVolcActionQuery(query, expectedAction string) (url.Values, error) {
+	if strings.ContainsAny(query, "\r\n") {
+		return nil, errors.New("火山点播请求参数包含非法换行")
+	}
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("解析火山点播请求参数: %w", err)
+	}
+	if values.Get("Action") != expectedAction {
+		return nil, fmt.Errorf("火山点播 Action 必须为 %s", expectedAction)
+	}
+	if values.Get("Version") != "2020-08-01" {
+		return nil, errors.New("火山点播 Version 必须为 2020-08-01")
+	}
+	return values, nil
 }

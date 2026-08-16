@@ -30,7 +30,7 @@
         </article>
         <article class="stat-card">
           <span>{{ hasStreamUrl ? 'stream_url' : 'security_token' }}</span>
-          <strong :title="hasStreamUrl ? streamUrl : securityToken">
+          <strong :title="hasStreamUrl ? '已提供直播地址' : (securityToken ? '已提供安全凭证' : '')">
             {{ hasStreamUrl ? trimToken(streamUrl) : (securityToken ? trimToken(securityToken) : "未提供") }}
           </strong>
         </article>
@@ -97,22 +97,22 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy, RefreshRight } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
+import '../assets/css/volcengine/veplayer/1.3.5/index.min.css'
 import { userStore } from '../stores/user'
 import { hasBackendBridge, invokeBackend } from '../utils/backend'
+import {
+  buildSafePlaybackDebugInfo,
+  createV2PlayInfoResolver,
+  getV2SignedPlayInfoQuery,
+  installVolcCookieBridge,
+  pickVolcPlaybackAuth,
+  type MediaVolcLike,
+  type VolcPlaybackAuth,
+} from '../utils/volc'
 
 type VePlayerCtor = new (options: Record<string, any>) => {
   dispose?: () => void
   on?: (event: string, cb: (...args: any[]) => void) => void
-}
-
-type MediaVolcLike = {
-  volc_play_auth_token?: string
-  play_auth_token?: string
-  tracks?: Array<{
-    formats?: Array<{
-      volc_play_auth_token?: string
-    }>
-  }>
 }
 
 const route = useRoute()
@@ -124,6 +124,8 @@ const playerSdk = ref<InstanceType<VePlayerCtor> | null>(null)
 const nativeVideoRef = ref<HTMLVideoElement | null>(null)
 const loading = ref(false)
 const errorText = ref('')
+let restorePlayInfoRequest: (() => void) | null = null
+let restoreVolcCookieBridge: (() => void) | null = null
 
 const title = computed(() => String(route.query.title ?? '视频'))
 const mediaId = computed(() => String(route.query.media_id ?? '').trim())
@@ -254,14 +256,6 @@ const ensureVePlayer = async () => {
   throw new Error('VePlayer SDK 加载失败，请检查网络连接')
 }
 
-const pickPlayAuthToken = (volc: MediaVolcLike | null | undefined) => {
-  const directToken = String(volc?.volc_play_auth_token ?? volc?.play_auth_token ?? '').trim()
-  if (directToken) return directToken
-  const formats = volc?.tracks?.flatMap((t) => t.formats ?? []) ?? []
-  const token = formats.map((f) => f?.volc_play_auth_token).find((t) => typeof t === 'string' && t.length > 0)
-  return token ?? ''
-}
-
 const normalizeErrorMessage = (raw: string) => {
   const msg = String(raw ?? '').trim()
   if (!msg) return '播放失败，请稍后重试'
@@ -291,6 +285,10 @@ const destroyPlayer = () => {
   try {
     playerSdk.value?.dispose?.()
   } finally {
+    restorePlayInfoRequest?.()
+    restorePlayInfoRequest = null
+    restoreVolcCookieBridge?.()
+    restoreVolcCookieBridge = null
     playerSdk.value = null
     if (playerRoot.value) playerRoot.value.innerHTML = ''
     if (nativeVideoRef.value) {
@@ -298,6 +296,28 @@ const destroyPlayer = () => {
       nativeVideoRef.value.removeAttribute('src')
       nativeVideoRef.value.load()
     }
+  }
+}
+
+const preserveV2SignedPlayInfoRequest = (
+  VePlayer: any,
+  playbackAuth: VolcPlaybackAuth,
+) => {
+  if (!getV2SignedPlayInfoQuery(playbackAuth.playAuthToken) || !playbackAuth.vid || !hasBackendBridge()) return
+  const service = VePlayer?.Service
+  const originalUrl = service?.url
+  if (typeof originalUrl !== 'function') return
+
+  const resolveLocal = (token: string) => {
+    const vid = activePlaybackAuth?.vid || playbackAuth.vid
+    return invokeBackend<{ Result?: Record<string, unknown> }>('GetVolcPlayInfoByToken', vid, token)
+      .then((response) => response?.Result ?? response)
+  }
+  const fallback = (...args: any[]) => Reflect.apply(originalUrl, service, args)
+  const patchedUrl = createV2PlayInfoResolver(resolveLocal, fallback)
+  service.url = patchedUrl
+  restorePlayInfoRequest = () => {
+    if (service.url === patchedUrl) service.url = originalUrl
   }
 }
 
@@ -324,9 +344,11 @@ const startNativePlayback = async () => {
   }
 }
 
-const fetchPlayAuthToken = async () => {
+let activePlaybackAuth: VolcPlaybackAuth | null = null
+
+const fetchPlaybackAuth = async (): Promise<VolcPlaybackAuth> => {
   if (hasRouteToken.value) {
-    return routePlayAuthToken.value
+    return { playAuthToken: routePlayAuthToken.value, keyToken: '', vid: '', format: '' }
   }
 
   if (!(mediaId.value && securityToken.value)) {
@@ -339,14 +361,14 @@ const fetchPlayAuthToken = async () => {
   }
 
   const volc = await invokeBackend<MediaVolcLike>('GetVolcPlayAuthToken', mediaId.value, securityToken.value)
-  const token = pickPlayAuthToken(volc)
-  if (!token) {
+  const playbackAuth = pickVolcPlaybackAuth(volc)
+  if (!playbackAuth.playAuthToken) {
     throw new Error('未获取到火山点播 playAuthToken')
   }
-  return token
+  return playbackAuth
 }
 
-const createPlayer = async (playAuthToken: string) => {
+const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
   const VePlayer = await ensureVePlayer()
 
   await nextTick()
@@ -355,18 +377,22 @@ const createPlayer = async (playAuthToken: string) => {
   }
 
   destroyPlayer()
+  preserveV2SignedPlayInfoRequest(VePlayer, playbackAuth)
+  restoreVolcCookieBridge = installVolcCookieBridge(document, window.location.protocol)
 
+  activePlaybackAuth = playbackAuth
+  const tokenConfig: Record<string, any> = {
+    playAuthToken: playbackAuth.playAuthToken,
+    definitionMap: {
+      original: { definition: 'ori', definitionTextKey: 'ORI' },
+      '360p': { definition: 'ld', definitionTextKey: 'LD' },
+      '480p': { definition: 'sd', definitionTextKey: 'SD' },
+      '720p': { definition: 'hd', definitionTextKey: 'HD' },
+    },
+  }
   const playerOptions: Record<string, any> = {
     root: playerRoot.value,
-    getVideoByToken: {
-      playAuthToken,
-      definitionMap: {
-        original: { definition: 'ori', definitionTextKey: 'ORI' },
-        '360p': { definition: 'ld', definitionTextKey: 'LD' },
-        '480p': { definition: 'sd', definitionTextKey: 'SD' },
-        '720p': { definition: 'hd', definitionTextKey: 'HD' },
-      },
-    },
+    getVideoByToken: tokenConfig,
     vodLogOpts: {
       vtype: "FLV",
       tag: "直播",
@@ -388,10 +414,20 @@ const createPlayer = async (playAuthToken: string) => {
     autoplay: true,
   }
 
+  if (playbackAuth.keyToken && hasBackendBridge()) {
+    playerOptions.unionId = `dedao-${String(store.user?.uid_hazy ?? 'local')}`
+    tokenConfig.getDrmAuthToken = async (playAuthIDs: string, vid: string, unionInfo: string) => {
+      const keyToken = activePlaybackAuth?.keyToken ?? ''
+      if (!keyToken) throw new Error('私有加密播放凭证已失效')
+      return invokeBackend<string>('GetVolcPrivateDrmAuthToken', keyToken, playAuthIDs, vid, unionInfo)
+    }
+  }
+
   if (mediaId.value && securityToken.value) {
     playerOptions.onTokenExpired = async () => {
-      const newToken = await fetchPlayAuthToken()
-      return { playAuthToken: newToken }
+      const newAuth = await fetchPlaybackAuth()
+      activePlaybackAuth = newAuth
+      return { playAuthToken: newAuth.playAuthToken }
     }
   }
 
@@ -418,8 +454,8 @@ const reload = async () => {
       await startNativePlayback()
       return
     }
-    const token = await fetchPlayAuthToken()
-    await createPlayer(token)
+    const playbackAuth = await fetchPlaybackAuth()
+    await createPlayer(playbackAuth)
   } catch (err) {
     const msg = getErrorMessage(err)
     errorText.value = msg
@@ -434,18 +470,18 @@ const goBack = () => {
 }
 
 const copyDebugInfo = async () => {
-  const content = [
-    `title=${title.value}`,
-    `runtime=${runtimeModeText.value}`,
-    `play_mode=${hasStreamUrl.value ? 'direct_stream' : 'token'}`,
-    `stream_url=${streamUrl.value}`,
-    `media_id=${mediaId.value}`,
-    `security_token=${securityToken.value}`,
-    `token_source=${hasRouteToken.value ? 'route_query' : hasStreamUrl.value ? 'stream_url' : 'wails_backend'}`,
-    `line_app_id=${lineAppId.value}`,
-    `status=${statusText.value}`,
-    `error=${errorText.value}`,
-  ].join('\n')
+  const content = buildSafePlaybackDebugInfo({
+    title: title.value,
+    runtime: runtimeModeText.value,
+    playMode: hasStreamUrl.value ? 'direct_stream' : 'token',
+    streamUrl: streamUrl.value,
+    mediaId: mediaId.value,
+    securityToken: securityToken.value,
+    tokenSource: hasRouteToken.value ? 'route_query' : hasStreamUrl.value ? 'stream_url' : 'wails_backend',
+    lineAppId: lineAppId.value,
+    status: statusText.value,
+    error: errorText.value,
+  })
 
   try {
     await navigator.clipboard.writeText(content)
