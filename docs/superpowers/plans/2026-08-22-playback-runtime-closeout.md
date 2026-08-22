@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the existing Wails v2 + Go + Vue layers. Extract a testable macOS window policy, send Volc signed queries through `net/http` with verbatim `RawQuery`, reject nil download payloads before dereference, pin Wails to v2.14.0, and add CSS content-visibility plus download-end notifications.
 
-**Tech Stack:** Go 1.23, Wails v2.14.0, Vue 3, Element Plus, net/http, httptest.
+**Tech Stack:** Go 1.25, Wails v2.14.0, Vue 3, Element Plus, net/http, httptest.
 
 ---
 

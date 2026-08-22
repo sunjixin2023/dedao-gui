@@ -11,9 +11,9 @@ This is a desktop application built with Wails v2 (Go + Vue.js) for downloading 
 ## Development Commands
 
 ### Prerequisites
-- Go 1.23+
+- Go 1.25+
 - Node.js 22.23.1
-- Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1`
+- Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0`
 
 ### Build & Development
 ```bash

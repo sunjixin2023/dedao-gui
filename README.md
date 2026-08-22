@@ -67,9 +67,9 @@
 
 ### 环境要求
 
-1. 安装 Go 1.23 或更高版本
+1. 安装 Go 1.25 或更高版本
 2. 安装 Node.js 22.23.1 和 npm
-3. 安装 Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1`
+3. 安装 Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0`
 
 ### 构建步骤
 
