@@ -386,7 +386,7 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
   restoreVolcCookieBridge = installVolcCookieBridge(document, window.location.protocol)
   const originalFetch = window.fetch.bind(window)
   restoreVolcUrlBridge = installVolcUrlBridge(
-    XMLHttpRequest.prototype,
+    XMLHttpRequest.prototype as unknown as { open: (this: any, method: string, url: string, ...rest: any[]) => any; send: (this: any, ...args: any[]) => any },
     window.location.protocol,
     (query) => invokeBackend<string>('ProxyVolcVodGet', query),
   )

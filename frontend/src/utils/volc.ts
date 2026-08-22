@@ -108,12 +108,9 @@ export const rewriteVolcRequestUrl = (url: string, protocol: string): string => 
   return raw
 }
 
-type OpenLike = (method: string, url: string, ...rest: unknown[]) => unknown
-type SendLike = (body?: unknown) => unknown
-
 type VolcXhrProto = {
-  open: OpenLike
-  send: SendLike
+  open: (this: any, method: string, url: string, ...rest: any[]) => any
+  send: (this: any, ...args: any[]) => any
 }
 
 export const installVolcUrlBridge = (
@@ -126,7 +123,7 @@ export const installVolcUrlBridge = (
   const originalOpen = xhrProto.open
   const originalSend = xhrProto.send
 
-  const patchedOpen: OpenLike = function (this: Record<string, unknown>, method: string, url: string, ...rest: unknown[]) {
+  const patchedOpen: VolcXhrProto['open'] = function (this: any, method: string, url: string, ...rest: any[]) {
     const query = extractVolcApiQuery(String(url ?? ''))
     if (query && String(method).toUpperCase() === 'GET' && proxyGet) {
       this[VOLC_QUERY_KEY] = query
@@ -136,7 +133,7 @@ export const installVolcUrlBridge = (
     return originalOpen.call(this, method, rewriteVolcRequestUrl(String(url ?? ''), protocol), ...rest)
   }
 
-  const patchedSend: SendLike = function (this: Record<string, unknown>, body?: unknown) {
+  const patchedSend: VolcXhrProto['send'] = function (this: any, body?: unknown) {
     const query = String(this[VOLC_QUERY_KEY] ?? '')
     if (!query || !proxyGet) {
       return originalSend.call(this, body)
@@ -154,7 +151,7 @@ export const installVolcUrlBridge = (
         this.status = 200
         this.statusText = 'OK'
         this.responseText = text
-        this.response = this.responseType === 'json' ? parsed : text
+        this.response = parsed
         this.readyState = 2
         const onready = this.onreadystatechange as (() => void) | undefined
         onready?.()
