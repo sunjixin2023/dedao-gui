@@ -205,3 +205,10 @@ body {
   border-radius: 4px;
   border: none;
 }
+
+.ebook-card,
+.odob-card,
+.course-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 280px;
+}
