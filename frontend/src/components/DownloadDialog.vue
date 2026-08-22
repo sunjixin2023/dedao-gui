@@ -70,8 +70,9 @@
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, PropType, ref, watch } from "vue";
 import { CancelDownload, CourseDownload, EbookDownload, OdobDownload } from "../../wailsjs/go/backend/App";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElNotification } from "element-plus";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { notifyDownloadEnd, trySystemNotification } from "../utils/downloadNotify";
 
 type DownloadState = 'queued' | 'downloading' | 'verifying' | 'completed' | 'failed' | 'cancelled'
 
@@ -87,6 +88,7 @@ const percentage = ref(0)
 const content = ref('')
 const errorDetail = ref('')
 const state = ref<DownloadState>('queued')
+const lastNotifiedState = ref<DownloadState | ''>('')
 const dialogVisible = ref(false)
 const downloadType = ref(1)
 const isStarting = ref(false)
@@ -186,6 +188,7 @@ const resetDialogState = () => {
     content.value = ''
     errorDetail.value = ''
     state.value = 'queued'
+    lastNotifiedState.value = ''
     isStarting.value = false
     cancelPending.value = false
     deferredExternalHide.value = false
@@ -283,6 +286,18 @@ const applyProgressEvent = (data?: DownloadProgressEvent) => {
 
     if (nextState === 'completed') {
         percentage.value = 100
+    }
+
+    if (lastNotifiedState.value !== nextState) {
+        lastNotifiedState.value = nextState
+        notifyDownloadEnd(nextState, errorDetail.value || content.value, (payload) => {
+            ElNotification({
+                title: payload.title,
+                message: payload.message,
+                type: payload.type,
+            })
+            trySystemNotification(payload)
+        })
     }
 }
 
