@@ -1,6 +1,6 @@
 # Playback Runtime Closeout Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship a 1.0.3 desktop app whose V2 video path, macOS window, download entrypoints, Wails runtime, and list/notification UX are correct without a visual rewrite.
 
@@ -28,7 +28,7 @@
 - Modify: `main.go`
 - Modify: `backend/app.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```go
 package backend
@@ -61,13 +61,13 @@ func TestFocusExistingWindowNilContextDoesNotPanic(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests and confirm they fail because the helpers do not exist**
+- [x] **Step 2: Run tests and confirm they fail because the helpers do not exist**
 
 Run: `go test ./backend -count=1 -run 'TestDesktopMacWindowPolicyIsOpaque|TestFocusExistingWindowNilContextDoesNotPanic'`
 
 Expected: FAIL, undefined `DesktopMacWindowPolicy` / `focusExistingWindow`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `backend/window_policy.go`:
 
@@ -135,11 +135,11 @@ func (a *App) OnSecondInstanceLaunch(secondInstanceData options.SecondInstanceDa
 }
 ```
 
-- [ ] **Step 4: Re-run the two tests**
+- [x] **Step 4: Re-run the two tests**
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/window_policy.go backend/window_policy_test.go main.go backend/app.go
@@ -160,7 +160,7 @@ EOF
 - Create: `backend/services/volc_http_test.go`
 - Modify: `backend/services/requester.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```go
 package services
@@ -216,11 +216,11 @@ func TestVolcSignedGETMaps496(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests, expect missing `volcSignedGET`**
+- [x] **Step 2: Run tests, expect missing `volcSignedGET`**
 
 Run: `go test ./backend/services -count=1 -run 'TestVolcSignedGET'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `backend/services/volc_http.go`:
 
@@ -301,11 +301,11 @@ func (s *Service) reqVolcQuery(query string) (io.ReadCloser, error) {
 
 Do not change `volcPlayInfoQuery` / `volcPrivateDrmQuery`; they already preserve signed prefixes.
 
-- [ ] **Step 4: Run `go test ./backend/services -count=1`**
+- [x] **Step 4: Run `go test ./backend/services -count=1`**
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/services/volc_http.go backend/services/volc_http_test.go backend/services/requester.go
@@ -326,7 +326,7 @@ EOF
 - Modify: `backend/download.go`
 - Test: `backend/app/download_test.go` (create if missing) or extend `backend/download_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```go
 func TestOdobDownloadNilDataDoesNotPanic(t *testing.T) {
@@ -354,11 +354,11 @@ func TestCourseDownloadEmptyEnID(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run and confirm current Odob test panics or returns success incorrectly**
+- [x] **Step 2: Run and confirm current Odob test panics or returns success incorrectly**
 
 Run: `go test ./backend/app -count=1 -run 'TestOdobDownloadNilData|TestEbookDownloadEmptyEnID|TestCourseDownloadEmptyEnID'`
 
-- [ ] **Step 3: Implement guards at the top of each `Download()`**
+- [x] **Step 3: Implement guards at the top of each `Download()`**
 
 ```go
 func (d *OdobDownload) Download() error {
@@ -394,11 +394,11 @@ func extOdobDownloadData(info *services.Course) []downloader.Datum {
 }
 ```
 
-- [ ] **Step 4: Re-run the new tests and `go test ./backend/app ./backend -count=1`**
+- [x] **Step 4: Re-run the new tests and `go test ./backend/app ./backend -count=1`**
 
 Expected: PASS, no panic
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/download.go backend/app/download_test.go backend/download.go backend/download_test.go
@@ -417,7 +417,7 @@ EOF
 **Files:**
 - Modify: `go.mod`, `go.sum`, `.wails-version`, `CLAUDE.md`
 
-- [ ] **Step 1: Write a pin contract test in `backend/version_test.go` (extend)**
+- [x] **Step 1: Write a pin contract test in `backend/version_test.go` (extend)**
 
 If a Wails pin test does not exist, add `scripts/wails_pin_test.sh` that asserts `.wails-version` equals `v2.14.0` and `go.mod` contains the same module version.
 
@@ -432,9 +432,9 @@ grep -q 'github.com/wailsapp/wails/v2 v2.14.0' "${root}/go.mod"
 
 First run should fail.
 
-- [ ] **Step 2: Run `bash scripts/wails_pin_test.sh` and watch it fail**
+- [x] **Step 2: Run `bash scripts/wails_pin_test.sh` and watch it fail**
 
-- [ ] **Step 3: Upgrade**
+- [x] **Step 3: Upgrade**
 
 ```bash
 printf 'v2.14.0\n' > .wails-version
@@ -447,11 +447,11 @@ Update `CLAUDE.md` install line to `wails@v2.14.0`. Do not change `scripts/boots
 
 If `go get` requires a newer Go, stop and record the constraint rather than jumping the toolchain past 1.23 unless `go.mod` already allows it.
 
-- [ ] **Step 4: Run pin script, `go test ./... -count=1`, `go vet ./...`**
+- [x] **Step 4: Run pin script, `go test ./... -count=1`, `go vet ./...`**
 
 Expected: PASS. Fix `WindowShow` vs `Show` compile errors from Task 1 if the upgrade renamed APIs.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add go.mod go.sum .wails-version CLAUDE.md scripts/wails_pin_test.sh
@@ -473,7 +473,7 @@ EOF
 - Modify: `frontend/src/views/Odob.vue`
 - Modify: `frontend/src/views/Course.vue`
 
-- [ ] **Step 1: Add a source contract test**
+- [x] **Step 1: Add a source contract test**
 
 `frontend/src/utils/listRendering.test.ts`:
 
@@ -491,9 +491,9 @@ test('card grids skip off-screen layout work', () => {
 })
 ```
 
-- [ ] **Step 2: Run `npm --prefix frontend test` and confirm the new test fails**
+- [x] **Step 2: Run `npm --prefix frontend test` and confirm the new test fails**
 
-- [ ] **Step 3: Add CSS**
+- [x] **Step 3: Add CSS**
 
 ```css
 .ebook-card,
@@ -506,11 +506,11 @@ test('card grids skip off-screen layout work', () => {
 
 Use the actual card class names already in those views. If they differ (`.ebook-card` is confirmed), inspect Odob/Course for the equivalent class and list every selector in the CSS rule. Do not add npm dependencies.
 
-- [ ] **Step 4: Re-run frontend tests**
+- [x] **Step 4: Re-run frontend tests**
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/assets/css/global.css frontend/src/utils/listRendering.test.ts
@@ -531,7 +531,7 @@ EOF
 - Create: `frontend/src/utils/downloadNotify.test.ts`
 - Modify: `frontend/src/components/DownloadDialog.vue`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ts
 import assert from 'node:assert/strict'
@@ -568,17 +568,17 @@ export const notifyDownloadEnd = (
 }
 ```
 
-- [ ] **Step 2: Run frontend tests, expect missing module**
+- [x] **Step 2: Run frontend tests, expect missing module**
 
-- [ ] **Step 3: Implement and wire DownloadDialog**
+- [x] **Step 3: Implement and wire DownloadDialog**
 
 On `state` transition into `completed|failed|cancelled`, call `notifyDownloadEnd`. Use `ElNotification` as `emit`. If `window.Notification` exists, call `Notification.requestPermission` at most once per session (module-level flag) and `new Notification(title, { body: message })` when granted. Catch constructor errors.
 
-- [ ] **Step 4: `npm --prefix frontend test` and `npm --prefix frontend run build`**
+- [x] **Step 4: `npm --prefix frontend test` and `npm --prefix frontend run build`**
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/utils/downloadNotify.ts frontend/src/utils/downloadNotify.test.ts frontend/src/components/DownloadDialog.vue
@@ -596,7 +596,7 @@ EOF
 
 **Files:** none new except plan checkbox updates
 
-- [ ] **Step 1: Run the full deterministic suite from the worktree**
+- [x] **Step 1: Run the full deterministic suite from the worktree**
 
 ```bash
 gofmt -w backend/window_policy.go backend/window_policy_test.go backend/services/volc_http.go backend/services/volc_http_test.go backend/app/download.go backend/app.go main.go
@@ -612,13 +612,13 @@ git diff --check
 
 Expected: all pass. If `npm --prefix frontend` lacks `node_modules` in the worktree, `npm ci --prefix frontend --no-fund --no-audit` first.
 
-- [ ] **Step 2: Confirm `rg 'WebviewIsTransparent: true'` in `main.go` is empty**
+- [x] **Step 2: Confirm `rg 'WebviewIsTransparent: true'` in `main.go` is empty**
 
-- [ ] **Step 3: Confirm `reqVolcQuery` calls `volcSignedGET`**
+- [x] **Step 3: Confirm `reqVolcQuery` calls `volcSignedGET`**
 
-- [ ] **Step 4: Update this plan's checkboxes to `[x]`**
+- [x] **Step 4: Update this plan's checkboxes to `[x]`**
 
-- [ ] **Step 5: Commit the spec/plan if not already committed**
+- [x] **Step 5: Commit the spec/plan if not already committed**
 
 Do not run `wails build` against the user's GUI. Do not launch `/Applications/dedao.app`.
 
