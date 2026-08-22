@@ -82,8 +82,8 @@ func main() {
 				HideToolbarSeparator:       true,
 			},
 			Appearance:           mac.DefaultAppearance,
-			WebviewIsTransparent: true,
-			WindowIsTranslucent:  true,
+			WebviewIsTransparent: backend.DesktopMacWindowPolicy().WebviewIsTransparent,
+			WindowIsTranslucent:  backend.DesktopMacWindowPolicy().WindowIsTranslucent,
 			About: &mac.AboutInfo{
 				Title:   "dedao",
 				Message: "https://github.com/yann0917/dedao-gui",

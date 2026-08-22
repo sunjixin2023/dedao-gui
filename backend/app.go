@@ -46,7 +46,7 @@ func (a *App) DomReady(ctx context.Context) {
 }
 
 func (a *App) OnSecondInstanceLaunch(secondInstanceData options.SecondInstanceData) {
-	fmt.Println("OnSecondInstanceLaunch", secondInstanceData)
+	focusExistingWindow(a.Ctx)
 }
 
 func setupCleanupOnExit() {
