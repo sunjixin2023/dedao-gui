@@ -105,6 +105,7 @@ import {
   createV2PlayInfoResolver,
   getV2SignedPlayInfoQuery,
   installVolcCookieBridge,
+  installVolcUrlBridge,
   pickVolcPlaybackAuth,
   type MediaVolcLike,
   type VolcPlaybackAuth,
@@ -126,6 +127,7 @@ const loading = ref(false)
 const errorText = ref('')
 let restorePlayInfoRequest: (() => void) | null = null
 let restoreVolcCookieBridge: (() => void) | null = null
+let restoreVolcUrlBridge: (() => void) | null = null
 
 const title = computed(() => String(route.query.title ?? '视频'))
 const mediaId = computed(() => String(route.query.media_id ?? '').trim())
@@ -289,6 +291,8 @@ const destroyPlayer = () => {
     restorePlayInfoRequest = null
     restoreVolcCookieBridge?.()
     restoreVolcCookieBridge = null
+    restoreVolcUrlBridge?.()
+    restoreVolcUrlBridge = null
     playerSdk.value = null
     if (playerRoot.value) playerRoot.value.innerHTML = ''
     if (nativeVideoRef.value) {
@@ -379,6 +383,7 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
   destroyPlayer()
   preserveV2SignedPlayInfoRequest(VePlayer, playbackAuth)
   restoreVolcCookieBridge = installVolcCookieBridge(document, window.location.protocol)
+  restoreVolcUrlBridge = installVolcUrlBridge(XMLHttpRequest.prototype, window.location.protocol)
 
   activePlaybackAuth = playbackAuth
   const tokenConfig: Record<string, any> = {
@@ -419,7 +424,11 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
     tokenConfig.getDrmAuthToken = async (playAuthIDs: string, vid: string, unionInfo: string) => {
       const keyToken = activePlaybackAuth?.keyToken ?? ''
       if (!keyToken) throw new Error('私有加密播放凭证已失效')
-      return invokeBackend<string>('GetVolcPrivateDrmAuthToken', keyToken, playAuthIDs, vid, unionInfo)
+      const token = await invokeBackend<string>('GetVolcPrivateDrmAuthToken', keyToken, playAuthIDs, vid, unionInfo)
+      if (typeof token !== 'string' || !token.trim()) {
+        throw new Error('私有加密授权结果为空')
+      }
+      return token
     }
   }
 

@@ -68,6 +68,48 @@ export const createV2PlayInfoResolver = (
   }
 }
 
+const VOLC_API_HOSTS = new Set(['vod.volcengineapi.com', 'vod.volces.com'])
+
+const hostOfOpaqueUrl = (value: string): string => value.split(/[/?#]/, 1)[0]
+
+export const rewriteVolcRequestUrl = (url: string, protocol: string): string => {
+  const raw = String(url ?? '').trim()
+  if (!raw || protocol !== 'wails:') return raw
+
+  if (raw.startsWith('//')) {
+    const host = hostOfOpaqueUrl(raw.slice(2))
+    if (VOLC_API_HOSTS.has(host)) return `https:${raw}`
+    return raw
+  }
+
+  if (raw.startsWith('wails://')) {
+    const rest = raw.slice('wails://'.length)
+    const host = hostOfOpaqueUrl(rest)
+    if (VOLC_API_HOSTS.has(host)) return `https://${rest}`
+  }
+
+  return raw
+}
+
+type OpenLike = (method: string, url: string, ...rest: unknown[]) => unknown
+
+export const installVolcUrlBridge = (
+  xhrProto: { open: OpenLike },
+  protocol: string,
+): (() => void) => {
+  if (protocol !== 'wails:') return () => undefined
+
+  const originalOpen = xhrProto.open
+  const patchedOpen: OpenLike = function (this: unknown, method: string, url: string, ...rest: unknown[]) {
+    return originalOpen.call(this, method, rewriteVolcRequestUrl(String(url ?? ''), protocol), ...rest)
+  }
+  xhrProto.open = patchedOpen
+
+  return () => {
+    if (xhrProto.open === patchedOpen) xhrProto.open = originalOpen
+  }
+}
+
 type CookieJar = {
   cookie: string
 }

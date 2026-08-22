@@ -6,8 +6,10 @@ import {
   createV2PlayInfoResolver,
   getV2SignedPlayInfoQuery,
   installVolcCookieBridge,
+  installVolcUrlBridge,
   isV2PlayAuthToken,
   pickVolcPlaybackAuth,
+  rewriteVolcRequestUrl,
 } from './volc.ts'
 
 test('picks the play and private DRM credentials from the same format', () => {
@@ -94,6 +96,38 @@ test('does not replace native cookie behavior on HTTP origins', () => {
 
   assert.equal(cookieJar.cookie, 'volcvui=native')
   restore()
+})
+
+test('rewrites protocol-relative Volc license URLs to https', () => {
+  assert.equal(
+    rewriteVolcRequestUrl('//vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth&Vid=v1', 'wails:'),
+    'https://vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth&Vid=v1',
+  )
+})
+
+test('rewrites wails-scheme Volc license URLs to https', () => {
+  assert.equal(
+    rewriteVolcRequestUrl('wails://vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth', 'wails:'),
+    'https://vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth',
+  )
+})
+
+test('leaves unrelated URLs unchanged', () => {
+  assert.equal(rewriteVolcRequestUrl('https://cdn.example/video.mpd', 'wails:'), 'https://cdn.example/video.mpd')
+  assert.equal(rewriteVolcRequestUrl('//cdn.example/video.mpd', 'wails:'), '//cdn.example/video.mpd')
+})
+
+test('rewrites XHR open URLs on the Wails scheme', () => {
+  const opened: string[] = []
+  const proto = {
+    open(method: string, url: string) {
+      opened.push(`${method} ${url}`)
+    },
+  }
+  const restore = installVolcUrlBridge(proto, 'wails:')
+  proto.open('GET', '//vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth')
+  restore()
+  assert.deepEqual(opened, ['GET https://vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth'])
 })
 
 test('debug info records credential presence without copying secrets', () => {
