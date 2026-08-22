@@ -103,6 +103,7 @@ import { hasBackendBridge, invokeBackend } from '../utils/backend'
 import {
   buildSafePlaybackDebugInfo,
   createV2PlayInfoResolver,
+  extractVolcApiQuery,
   getV2SignedPlayInfoQuery,
   installVolcCookieBridge,
   installVolcUrlBridge,
@@ -383,7 +384,29 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
   destroyPlayer()
   preserveV2SignedPlayInfoRequest(VePlayer, playbackAuth)
   restoreVolcCookieBridge = installVolcCookieBridge(document, window.location.protocol)
-  restoreVolcUrlBridge = installVolcUrlBridge(XMLHttpRequest.prototype, window.location.protocol)
+  const originalFetch = window.fetch.bind(window)
+  restoreVolcUrlBridge = installVolcUrlBridge(
+    XMLHttpRequest.prototype,
+    window.location.protocol,
+    (query) => invokeBackend<string>('ProxyVolcVodGet', query),
+  )
+  if (window.location.protocol === 'wails:') {
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const query = extractVolcApiQuery(url)
+      if (query) {
+        return invokeBackend<string>('ProxyVolcVodGet', query).then((text) => {
+          return new Response(text, { status: 200, headers: { 'content-type': 'application/json' } })
+        })
+      }
+      return originalFetch(input as RequestInfo, init)
+    }
+    const restoreXhr = restoreVolcUrlBridge
+    restoreVolcUrlBridge = () => {
+      window.fetch = originalFetch
+      restoreXhr?.()
+    }
+  }
 
   activePlaybackAuth = playbackAuth
   const tokenConfig: Record<string, any> = {

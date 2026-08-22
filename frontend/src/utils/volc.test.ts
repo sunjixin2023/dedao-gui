@@ -9,6 +9,7 @@ import {
   installVolcUrlBridge,
   isV2PlayAuthToken,
   pickVolcPlaybackAuth,
+  extractVolcApiQuery,
   rewriteVolcRequestUrl,
 } from './volc.ts'
 
@@ -117,17 +118,53 @@ test('leaves unrelated URLs unchanged', () => {
   assert.equal(rewriteVolcRequestUrl('//cdn.example/video.mpd', 'wails:'), '//cdn.example/video.mpd')
 })
 
-test('rewrites XHR open URLs on the Wails scheme', () => {
-  const opened: string[] = []
+test('extracts the signed Volc query from protocol-relative license URLs', () => {
+  assert.equal(
+    extractVolcApiQuery('//vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth&Vid=v1'),
+    'Action=GetPrivateDrmPlayAuth&Vid=v1',
+  )
+  assert.equal(extractVolcApiQuery('https://cdn.example/video.mpd'), '')
+})
+
+test('proxies Volc license XHR through the local backend', async () => {
+  const xhr = {
+    open(_method: string, _url: string) {},
+    send(_body?: unknown) {},
+    onload: undefined as ((ev: { target: unknown }) => void) | undefined,
+    status: 0,
+    readyState: 0,
+    responseType: 'json',
+    response: null as unknown,
+    responseText: '',
+  }
   const proto = {
-    open(method: string, url: string) {
-      opened.push(`${method} ${url}`)
+    open(this: typeof xhr, method: string, url: string) {
+      return Object.getPrototypeOf(xhr).open.call(this, method, url)
+    },
+    send(this: typeof xhr, body?: unknown) {
+      return Object.getPrototypeOf(xhr).send.call(this, body)
     },
   }
-  const restore = installVolcUrlBridge(proto, 'wails:')
-  proto.open('GET', '//vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth')
+  Object.setPrototypeOf(xhr, proto)
+  const restore = installVolcUrlBridge(proto, 'wails:', async (query) => {
+    assert.equal(query, 'Action=GetPrivateDrmPlayAuth&Vid=v1')
+    return '{"Result":{"PlayAuthInfoList":[{"PlayAuthContent":"ok"}]}}'
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    xhr.onload = () => {
+      try {
+        assert.equal(xhr.status, 200)
+        assert.equal((xhr.response as { Result?: { PlayAuthInfoList?: Array<{ PlayAuthContent?: string }> } }).Result?.PlayAuthInfoList?.[0]?.PlayAuthContent, 'ok')
+        resolve()
+      } catch (err) {
+        reject(err)
+      }
+    }
+    proto.open.call(xhr, 'GET', '//vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth&Vid=v1')
+    proto.send.call(xhr)
+  })
   restore()
-  assert.deepEqual(opened, ['GET https://vod.volcengineapi.com/?Action=GetPrivateDrmPlayAuth'])
 })
 
 test('debug info records credential presence without copying secrets', () => {

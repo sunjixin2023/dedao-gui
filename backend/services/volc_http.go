@@ -62,3 +62,16 @@ func volcSignedGET(endpoint, query string, cookies []*http.Cookie) (io.ReadClose
 	}
 	return resp.Body, nil
 }
+
+func (s *Service) ProxyVolcVodGet(query string) (string, error) {
+	body, err := s.reqVolcQuery(query)
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}

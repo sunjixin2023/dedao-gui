@@ -110,3 +110,7 @@ func (a *App) GetVolcPlayInfoByToken(vid, playAuthToken string) (*services.VodPl
 		VolcPlayAuthToken: playAuthToken,
 	})
 }
+
+func (a *App) ProxyVolcVodGet(query string) (string, error) {
+	return Instance.ProxyVolcVodGet(query)
+}

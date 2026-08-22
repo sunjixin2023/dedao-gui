@@ -158,6 +158,10 @@ export function GetVolcPrivateDrmAuthToken(arg1, arg2, arg3, arg4) {
   return window['go']['backend']['App']['GetVolcPrivateDrmAuthToken'](arg1, arg2, arg3, arg4);
 }
 
+export function ProxyVolcVodGet(arg1) {
+  return window['go']['backend']['App']['ProxyVolcVodGet'](arg1);
+}
+
 export function KnowledgeCreateNote(arg1, arg2) {
   return window['go']['backend']['App']['KnowledgeCreateNote'](arg1, arg2);
 }

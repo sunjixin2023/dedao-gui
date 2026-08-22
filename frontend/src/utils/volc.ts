@@ -69,8 +69,25 @@ export const createV2PlayInfoResolver = (
 }
 
 const VOLC_API_HOSTS = new Set(['vod.volcengineapi.com', 'vod.volces.com'])
+const VOLC_QUERY_KEY = '__dedaoVolcQuery'
 
 const hostOfOpaqueUrl = (value: string): string => value.split(/[/?#]/, 1)[0]
+
+export const extractVolcApiQuery = (url: string): string => {
+  const raw = String(url ?? '').trim()
+  let rest = raw
+  if (raw.startsWith('//')) rest = raw.slice(2)
+  else if (raw.startsWith('wails://')) rest = raw.slice('wails://'.length)
+  else if (raw.startsWith('https://')) rest = raw.slice('https://'.length)
+  else if (raw.startsWith('http://')) rest = raw.slice('http://'.length)
+  else return ''
+
+  const host = hostOfOpaqueUrl(rest)
+  if (!VOLC_API_HOSTS.has(host)) return ''
+  const queryIndex = rest.indexOf('?')
+  if (queryIndex < 0) return ''
+  return rest.slice(queryIndex + 1)
+}
 
 export const rewriteVolcRequestUrl = (url: string, protocol: string): string => {
   const raw = String(url ?? '').trim()
@@ -92,21 +109,74 @@ export const rewriteVolcRequestUrl = (url: string, protocol: string): string => 
 }
 
 type OpenLike = (method: string, url: string, ...rest: unknown[]) => unknown
+type SendLike = (body?: unknown) => unknown
+
+type VolcXhrProto = {
+  open: OpenLike
+  send: SendLike
+}
 
 export const installVolcUrlBridge = (
-  xhrProto: { open: OpenLike },
+  xhrProto: VolcXhrProto,
   protocol: string,
+  proxyGet?: (query: string) => Promise<string>,
 ): (() => void) => {
   if (protocol !== 'wails:') return () => undefined
 
   const originalOpen = xhrProto.open
-  const patchedOpen: OpenLike = function (this: unknown, method: string, url: string, ...rest: unknown[]) {
+  const originalSend = xhrProto.send
+
+  const patchedOpen: OpenLike = function (this: Record<string, unknown>, method: string, url: string, ...rest: unknown[]) {
+    const query = extractVolcApiQuery(String(url ?? ''))
+    if (query && String(method).toUpperCase() === 'GET' && proxyGet) {
+      this[VOLC_QUERY_KEY] = query
+      return
+    }
+    this[VOLC_QUERY_KEY] = ''
     return originalOpen.call(this, method, rewriteVolcRequestUrl(String(url ?? ''), protocol), ...rest)
   }
+
+  const patchedSend: SendLike = function (this: Record<string, unknown>, body?: unknown) {
+    const query = String(this[VOLC_QUERY_KEY] ?? '')
+    if (!query || !proxyGet) {
+      return originalSend.call(this, body)
+    }
+
+    void proxyGet(query)
+      .then((text) => {
+        const parsed = (() => {
+          try {
+            return JSON.parse(text)
+          } catch {
+            return text
+          }
+        })()
+        this.status = 200
+        this.statusText = 'OK'
+        this.responseText = text
+        this.response = this.responseType === 'json' ? parsed : text
+        this.readyState = 2
+        const onready = this.onreadystatechange as (() => void) | undefined
+        onready?.()
+        this.readyState = 4
+        onready?.()
+        const onload = this.onload as ((ev: { target: unknown }) => void) | undefined
+        onload?.({ target: this })
+      })
+      .catch(() => {
+        this.status = 0
+        this.readyState = 4
+        const onerror = this.onerror as ((ev: unknown) => void) | undefined
+        onerror?.(new Error('火山点播代理失败'))
+      })
+  }
+
   xhrProto.open = patchedOpen
+  xhrProto.send = patchedSend
 
   return () => {
     if (xhrProto.open === patchedOpen) xhrProto.open = originalOpen
+    if (xhrProto.send === patchedSend) xhrProto.send = originalSend
   }
 }
 
