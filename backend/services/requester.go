@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // reqGetLoginAccessToken 扫码请求token
@@ -669,15 +667,7 @@ func (s *Service) reqVolcGetPlayInfo(query string) (io.ReadCloser, error) {
 }
 
 func (s *Service) reqVolcQuery(query string) (io.ReadCloser, error) {
-	cookies := s.client.Cookies
-	client := resty.New()
-	client.SetCookies(cookies).
-		SetHeaderVerbatim("User-Agent", UserAgent).
-		SetHeaderVerbatim("Xi-DT", "web")
-	resp, err := client.
-		R().
-		Get("https://vod.volcengineapi.com/?" + query)
-	return handleHTTPResponse(resp, err)
+	return volcSignedGET("https://vod.volcengineapi.com/", query, s.client.Cookies)
 }
 
 // reqSearchHot search hot
