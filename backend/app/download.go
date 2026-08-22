@@ -149,6 +149,9 @@ func SetOutputDir(dir string) {
 }
 
 func (d *CourseDownload) Download() error {
+	if d == nil || strings.TrimSpace(d.EnId) == "" {
+		return errors.New("下载任务无效")
+	}
 	course, err := getService().CourseInfo(d.EnId)
 	if err != nil {
 		return err
@@ -261,6 +264,9 @@ func (d *CourseDownload) Download() error {
 }
 
 func (d *OdobDownload) Download() error {
+	if d == nil || d.Data == nil {
+		return errors.New("下载任务无效")
+	}
 	fileName := "每天听本书"
 	switch d.DownloadType {
 	case 1:
@@ -341,6 +347,9 @@ func (d *OdobDownload) Download() error {
 }
 
 func (d *EBookDownload) Download() error {
+	if d == nil || strings.TrimSpace(d.EnID) == "" {
+		return errors.New("下载任务无效")
+	}
 	detail, err := EbookDetail(d.EnID)
 	if err != nil {
 		return err
@@ -665,6 +674,9 @@ func pickAdaptiveM3U8URL(info *services.VodPlayInfoResp) string {
 
 // extOdobDownloadData 生成 AudioBook 下载数据
 func extOdobDownloadData(info *services.Course) []downloader.Datum {
+	if info == nil {
+		return nil
+	}
 	data := downloader.EmptyData
 	audioIds := map[int]string{}
 

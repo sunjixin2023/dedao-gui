@@ -60,3 +60,27 @@ func TestResolveTerminalProgressSanitizesFailureDetail(t *testing.T) {
 		t.Fatalf("detail = %q, want download-directory guidance", progress.Detail)
 	}
 }
+
+func TestOdobDownloadNilDataDoesNotPanic(t *testing.T) {
+	d := OdobDownload{DownloadType: 1, Data: nil}
+	err := d.Download()
+	if err == nil {
+		t.Fatal("expected error for nil odob payload")
+	}
+}
+
+func TestEbookDownloadEmptyEnID(t *testing.T) {
+	d := EBookDownload{DownloadType: 1, EnID: ""}
+	err := d.Download()
+	if err == nil {
+		t.Fatal("expected error for empty ebook id")
+	}
+}
+
+func TestCourseDownloadEmptyEnID(t *testing.T) {
+	d := CourseDownload{DownloadType: 1, EnId: ""}
+	err := d.Download()
+	if err == nil {
+		t.Fatal("expected error for empty course id")
+	}
+}
