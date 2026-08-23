@@ -9,6 +9,13 @@ func TestDesktopMacWindowPolicyIsOpaque(t *testing.T) {
 	}
 }
 
+func TestDesktopMacWindowPolicyEnablesElementFullscreen(t *testing.T) {
+	got := DesktopMacWindowPolicy()
+	if !got.FullscreenEnabled {
+		t.Fatal("WKWebView element fullscreen must be enabled for VePlayer")
+	}
+}
+
 func TestFocusExistingWindowNilContextDoesNotPanic(t *testing.T) {
 	defer func() {
 		if recover() != nil {

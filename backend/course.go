@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"strings"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/yann0917/dedao-gui/backend/app"
 	"github.com/yann0917/dedao-gui/backend/services"
@@ -113,4 +115,19 @@ func (a *App) GetVolcPlayInfoByToken(vid, playAuthToken string) (*services.VodPl
 
 func (a *App) ProxyVolcVodGet(query string) (string, error) {
 	return Instance.ProxyVolcVodGet(query)
+}
+
+func (a *App) ProxyMediaGet(rawURL, rangeHeader string) (*services.MediaProxyResult, error) {
+	return Instance.ProxyMediaGet(rawURL, rangeHeader)
+}
+
+func (a *App) RecordPlaybackProbe(payload string) {
+	payload = strings.TrimSpace(payload)
+	if payload == "" || len(payload) > 4096 {
+		return
+	}
+	if strings.ContainsAny(payload, "\r\n") {
+		return
+	}
+	services.AppendPlaybackProbe(payload)
 }

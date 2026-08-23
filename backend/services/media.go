@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -252,6 +253,27 @@ func (s *Service) GetVolcPlayInfo(query string) (info *VodPlayInfoResp, err erro
 	if err = decodeVolcJSON(body, &info); err != nil {
 		return
 	}
+	if info != nil {
+		authCount := 0
+		formats := make([]string, 0, len(info.Result.PlayInfoList))
+		for _, item := range info.Result.PlayInfoList {
+			if strings.TrimSpace(item.PlayAuthId) != "" {
+				authCount++
+			}
+			if item.Format != "" {
+				formats = append(formats, item.Format)
+			}
+		}
+		appendVolcProxyProbe(fmt.Sprintf(
+			`{"kind":"play_info","ok":true,"status":%d,"file_type":%q,"play_count":%d,"play_auth_id_count":%d,"formats":%q,"hosts":%q}`,
+			info.Result.Status,
+			info.Result.FileType,
+			len(info.Result.PlayInfoList),
+			authCount,
+			strings.Join(formats, ","),
+			strings.Join(collectPlayURLHosts(info), ","),
+		))
+	}
 	return
 }
 
@@ -265,6 +287,36 @@ func (s *Service) GetVolcPlayInfoByFormat(format VolcFormat) (*VodPlayInfoResp, 
 
 func (s *Service) GetVolcPrivateDrmAuthToken(keyToken, playAuthIDs, vid, unionInfo string) (string, error) {
 	return volcPrivateDrmQuery(keyToken, playAuthIDs, vid, unionInfo)
+}
+
+func collectPlayURLHosts(info *VodPlayInfoResp) []string {
+	if info == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	add := func(raw string) {
+		parsed, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil {
+			return
+		}
+		host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+		if host == "" {
+			return
+		}
+		seen[host] = struct{}{}
+	}
+	add(info.Result.AdaptiveInfo.MainPlayUrl)
+	add(info.Result.AdaptiveInfo.BackupPlayUrl)
+	for _, item := range info.Result.PlayInfoList {
+		add(item.MainPlayUrl)
+		add(item.BackupPlayUrl)
+	}
+	hosts := make([]string, 0, len(seen))
+	for host := range seen {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	return hosts
 }
 
 func decodeVolcJSON(reader io.Reader, target interface{}) error {

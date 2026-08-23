@@ -84,6 +84,11 @@
         </ul>
 
         <div class="sidebar-status">
+          <span>运行环境</span>
+          <p style="white-space: pre-wrap">{{ runtimeProbeText }}</p>
+        </div>
+
+        <div class="sidebar-status">
           <span>最近错误</span>
           <p>{{ errorText || "暂无" }}</p>
         </div>
@@ -97,18 +102,41 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy, RefreshRight } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
-import '../assets/css/volcengine/veplayer/1.3.5/index.min.css'
+import '../assets/css/volcengine/veplayer/1.15.1/index.min.css'
 import { userStore } from '../stores/user'
 import { hasBackendBridge, invokeBackend } from '../utils/backend'
 import {
+  buildPrivateDrmAuthQuery,
   buildSafePlaybackDebugInfo,
   createV2PlayInfoResolver,
+  extractProxiedMediaUrl,
   extractVolcApiQuery,
+  normalizeMediaProxyResult,
   getV2SignedPlayInfoQuery,
   installVolcCookieBridge,
   installVolcUrlBridge,
   pickVolcPlaybackAuth,
+  readPlaybackRuntimeEnv,
+  summarizeVolcLicenseResponse,
+  canAttachDashPlugin,
+  isDashPluginReady,
+  privateDashPluginOptions,
+  desktopPlayerChromeOptions,
+  desktopPlaybackRates,
+  shouldRecordPlaybackProbe,
+  readPlaybackPosition,
+  writePlaybackPosition,
+  volcDefinitionMap,
+  installDesktopPipAvailability,
+  installCssPictureInPictureFallback,
+  isVePlayerReadyForPrivateDash,
+  installVePlayerSdkLicenseBypass,
+  installVePlayerLicenseExemption,
+  hostOfRequestUrl,
+  type MediaProxyResult,
+  type VolcXhrOpenTrace,
   type MediaVolcLike,
+  type PlaybackRuntimeProbe,
   type VolcPlaybackAuth,
 } from '../utils/volc'
 
@@ -126,9 +154,17 @@ const playerSdk = ref<InstanceType<VePlayerCtor> | null>(null)
 const nativeVideoRef = ref<HTMLVideoElement | null>(null)
 const loading = ref(false)
 const errorText = ref('')
+const runtimeProbe = ref<PlaybackRuntimeProbe | null>(null)
+const runtimeProbeExtra = ref('')
 let restorePlayInfoRequest: (() => void) | null = null
+let restoreVePlayerLicense: (() => void) | null = null
+let restoreVePlayerLicenseExemption: (() => void) | null = null
 let restoreVolcCookieBridge: (() => void) | null = null
 let restoreVolcUrlBridge: (() => void) | null = null
+let restorePipAvailability: (() => void) | null = null
+let restoreCssPip: (() => void) | null = null
+const seenNetOpenKeys = new Set<string>()
+let mediaProxySuccessCount = 0
 
 const title = computed(() => String(route.query.title ?? '视频'))
 const mediaId = computed(() => String(route.query.media_id ?? '').trim())
@@ -168,6 +204,32 @@ const missingParamsText = computed(() => {
 const runtimeModeText = computed(() => {
   return hasBackendBridge() ? '桌面应用' : '浏览器预览'
 })
+const runtimeProbeText = computed(() => {
+  const probe = runtimeProbe.value
+  if (!probe) return '待采集'
+  return [
+    `protocol=${probe.protocol}`,
+    `secure_context=${probe.secure_context}`,
+    `crypto_subtle=${probe.crypto_subtle}`,
+    `media_source=${probe.media_source}`,
+    runtimeProbeExtra.value,
+  ].filter(Boolean).join('\n')
+})
+
+const recordPlaybackProbe = (payload: Record<string, unknown>) => {
+  if (!hasBackendBridge()) return
+  const kind = String(payload.kind ?? '')
+  const mediaOk =
+    kind === 'media_proxy' &&
+    payload.ok !== false &&
+    Number(payload.status ?? 200) < 400
+  if (!shouldRecordPlaybackProbe(kind, kind === 'media_proxy' ? mediaOk : true, mediaProxySuccessCount)) {
+    if (mediaOk) mediaProxySuccessCount += 1
+    return
+  }
+  if (mediaOk) mediaProxySuccessCount += 1
+  void invokeBackend('RecordPlaybackProbe', JSON.stringify(payload)).catch(() => undefined)
+}
 const statusText = computed(() => {
   if (loading.value) return '加载中'
   if (missingParamsText.value) return '参数缺失'
@@ -177,7 +239,15 @@ const statusText = computed(() => {
   return '待启动'
 })
 
+const VEPLAYER_DASH_PLUGIN_URL = new URL(
+  '../assets/js/volcengine/veplayer/1.15.1/plugin/dash.js',
+  import.meta.url,
+).href
+
 const VEPLAYER_SDK_URLS = [
+  {
+    js: new URL('../assets/js/volcengine/veplayer/1.15.1/index.min.js', import.meta.url).href,
+  },
   {
     css: 'https://lf-unpkg.volccdn.com/obj/vcloudfe/sdk/@volcengine/veplayer/1.15.1/index.min.css',
     js: 'https://lf-unpkg.volccdn.com/obj/vcloudfe/sdk/@volcengine/veplayer/1.15.1/index.min.js',
@@ -185,9 +255,6 @@ const VEPLAYER_SDK_URLS = [
   {
     css: 'https://sf-unpkg.bytepluscdn.com/obj/byteplusfe-sg/sdk/@volcengine/veplayer/1.15.1/index.min.css',
     js: 'https://sf-unpkg.bytepluscdn.com/obj/byteplusfe-sg/sdk/@volcengine/veplayer/1.15.1/index.min.js',
-  },
-  {
-    js: new URL('../assets/js/volcengine/1.3.5/index.min.js', import.meta.url).href,
   },
 ]
 
@@ -235,13 +302,11 @@ const ensureScriptLoaded = (src: string) => {
   })
 }
 
-const hasRequiredApi = (VePlayerLike: any) => {
-  return typeof VePlayerLike === 'function'
-}
-
 const ensureVePlayer = async () => {
-  const existing = (window as any).VePlayer
-  if (hasRequiredApi(existing)) return existing as VePlayerCtor
+  const globals = window as Window & { VePlayer?: unknown; Player?: unknown; DashPlugin?: unknown }
+  if (isVePlayerReadyForPrivateDash(globals) && typeof globals.VePlayer === 'function') {
+    return globals.VePlayer as VePlayerCtor
+  }
 
   for (const url of VEPLAYER_SDK_URLS) {
     try {
@@ -249,14 +314,27 @@ const ensureVePlayer = async () => {
         await ensureCssLoaded(url.css)
       }
       await ensureScriptLoaded(url.js)
-      const loaded = (window as any).VePlayer
-      if (hasRequiredApi(loaded)) return loaded as VePlayerCtor
+      if (isVePlayerReadyForPrivateDash(globals) && typeof globals.VePlayer === 'function') {
+        return globals.VePlayer as VePlayerCtor
+      }
     } catch {
       continue
     }
   }
 
-  throw new Error('VePlayer SDK 加载失败，请检查网络连接')
+  throw new Error('VePlayer 1.15 加载失败，无法播放加密视频')
+}
+
+const ensureDashPlugin = async () => {
+  const globals = window as Window & { DashPlugin?: unknown; Player?: unknown }
+  if (isDashPluginReady(globals)) return
+  if (!canAttachDashPlugin(globals)) {
+    throw new Error('VePlayer 核心未暴露 Player，无法加载 DASH 解密插件')
+  }
+  await ensureScriptLoaded(VEPLAYER_DASH_PLUGIN_URL)
+  if (!isDashPluginReady(globals)) {
+    throw new Error('DASH 解密插件未就绪')
+  }
 }
 
 const normalizeErrorMessage = (raw: string) => {
@@ -294,6 +372,8 @@ const destroyPlayer = () => {
     restoreVolcCookieBridge = null
     restoreVolcUrlBridge?.()
     restoreVolcUrlBridge = null
+    restoreCssPip?.()
+    restoreCssPip = null
     playerSdk.value = null
     if (playerRoot.value) playerRoot.value.innerHTML = ''
     if (nativeVideoRef.value) {
@@ -374,7 +454,17 @@ const fetchPlaybackAuth = async (): Promise<VolcPlaybackAuth> => {
 }
 
 const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
+  if (!restoreVePlayerLicenseExemption) {
+    restoreVePlayerLicenseExemption = installVePlayerLicenseExemption()
+  }
   const VePlayer = await ensureVePlayer()
+  await ensureDashPlugin()
+  recordPlaybackProbe({
+    kind: 'plugins',
+    dash_plugin: typeof (window as any).DashPlugin,
+    veplayer: typeof (window as any).VePlayer,
+    player_global: typeof (window as any).Player,
+  })
 
   await nextTick()
   if (!playerRoot.value) {
@@ -382,23 +472,99 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
   }
 
   destroyPlayer()
+  restoreVePlayerLicense = installVePlayerSdkLicenseBypass(VePlayer as any)
+  recordPlaybackProbe({
+    kind: 'sdk_license',
+    bypass: true,
+    exemption: true,
+    use_eme: playbackAuth.keyToken ? privateDashPluginOptions().useEME : null,
+  })
+  const probe = readPlaybackRuntimeEnv(window)
+  runtimeProbe.value = probe
+  runtimeProbeExtra.value = [
+    `key_token_present=${Boolean(playbackAuth.keyToken)}`,
+    `vid_present=${Boolean(playbackAuth.vid)}`,
+    `format=${playbackAuth.format || 'unknown'}`,
+    `drm_callback=${Boolean(playbackAuth.keyToken && hasBackendBridge())}`,
+    `union_id_present=${Boolean(playbackAuth.keyToken && hasBackendBridge())}`,
+  ].join('\n')
+  recordPlaybackProbe({
+    kind: 'runtime',
+    ...probe,
+    key_token_present: Boolean(playbackAuth.keyToken),
+    vid_present: Boolean(playbackAuth.vid),
+    format: playbackAuth.format,
+    drm_callback: Boolean(playbackAuth.keyToken && hasBackendBridge()),
+    union_id_present: Boolean(playbackAuth.keyToken && hasBackendBridge()),
+  })
   preserveV2SignedPlayInfoRequest(VePlayer, playbackAuth)
   restoreVolcCookieBridge = installVolcCookieBridge(document, window.location.protocol)
   const originalFetch = window.fetch.bind(window)
+  const proxyVolcGet = (query: string) => {
+    return invokeBackend<string>('ProxyVolcVodGet', query).then((text) => {
+      recordPlaybackProbe({ kind: 'license_proxy', action: new URLSearchParams(query).get('Action') ?? '', ...summarizeVolcLicenseResponse(text) })
+      return text
+    })
+  }
+  const proxyMediaGet = (url: string, rangeHeader: string) => {
+    return invokeBackend<MediaProxyResult>('ProxyMediaGet', url, rangeHeader).then((raw) => {
+      const result = normalizeMediaProxyResult(raw as MediaProxyResult)
+      const host = (() => {
+        try {
+          return new URL(url).host
+        } catch {
+          return ''
+        }
+      })()
+      recordPlaybackProbe({
+        kind: 'media_proxy',
+        host,
+        status: result.status,
+        has_range: Boolean(rangeHeader),
+      })
+      return result
+    })
+  }
+  const traceNetOpen = (trace: VolcXhrOpenTrace) => {
+    const host = String(trace.host ?? '').trim()
+    if (!host) return
+    const key = `${trace.proxied}:${host}`
+    if (seenNetOpenKeys.has(key) || seenNetOpenKeys.size >= 40) return
+    seenNetOpenKeys.add(key)
+    recordPlaybackProbe({ kind: 'xhr_open', host, proxied: trace.proxied })
+  }
   restoreVolcUrlBridge = installVolcUrlBridge(
     XMLHttpRequest.prototype as unknown as { open: (this: any, method: string, url: string, ...rest: any[]) => any; send: (this: any, ...args: any[]) => any },
     window.location.protocol,
-    (query) => invokeBackend<string>('ProxyVolcVodGet', query),
+    proxyVolcGet,
+    proxyMediaGet,
+    traceNetOpen,
   )
   if (window.location.protocol === 'wails:') {
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = String(init?.method ?? request?.method ?? 'GET').toUpperCase()
       const query = extractVolcApiQuery(url)
-      if (query) {
-        return invokeBackend<string>('ProxyVolcVodGet', query).then((text) => {
+      if (query && method === 'GET') {
+        traceNetOpen({ host: hostOfRequestUrl(url), proxied: 'volc' })
+        return proxyVolcGet(query).then((text) => {
           return new Response(text, { status: 200, headers: { 'content-type': 'application/json' } })
         })
       }
+      const mediaUrl = extractProxiedMediaUrl(url, window.location.protocol)
+      if (mediaUrl && method === 'GET') {
+        traceNetOpen({ host: hostOfRequestUrl(url), proxied: 'media' })
+        const headers = new Headers(init?.headers ?? request?.headers)
+        return proxyMediaGet(mediaUrl, headers.get('Range') ?? '').then((result) => {
+          const binary = Uint8Array.from(atob(result.bodyB64), (ch) => ch.charCodeAt(0))
+          const out = new Headers()
+          if (result.contentType) out.set('content-type', result.contentType)
+          if (result.contentRange) out.set('content-range', result.contentRange)
+          return new Response(binary, { status: result.status || 200, headers: out })
+        })
+      }
+      traceNetOpen({ host: hostOfRequestUrl(url), proxied: '' })
       return originalFetch(input as RequestInfo, init)
     }
     const restoreXhr = restoreVolcUrlBridge
@@ -411,12 +577,9 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
   activePlaybackAuth = playbackAuth
   const tokenConfig: Record<string, any> = {
     playAuthToken: playbackAuth.playAuthToken,
-    definitionMap: {
-      original: { definition: 'ori', definitionTextKey: 'ORI' },
-      '360p': { definition: 'ld', definitionTextKey: 'LD' },
-      '480p': { definition: 'sd', definitionTextKey: 'SD' },
-      '720p': { definition: 'hd', definitionTextKey: 'HD' },
-    },
+    keyToken: playbackAuth.keyToken || undefined,
+    definitionMap: volcDefinitionMap(),
+    needThumbs: true,
   }
   const playerOptions: Record<string, any> = {
     root: playerRoot.value,
@@ -436,23 +599,47 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
         LD: '流畅',
         SD: '标清',
         HD: '高清',
+        UHD: '全高清',
       },
     },
     lang: 'zh',
     autoplay: true,
+    defaultDefinition: '720p',
+    autoBitrateOpts: { enable: false },
+    definition: { isShowIcon: true, disable: false },
+    playbackRate: desktopPlaybackRates(),
+    drmType: playbackAuth.keyToken ? 'private_encrypt' : undefined,
+    DASHPlugin: playbackAuth.keyToken ? privateDashPluginOptions() : undefined,
+    ...desktopPlayerChromeOptions(window.location.protocol),
   }
 
   if (playbackAuth.keyToken && hasBackendBridge()) {
     playerOptions.unionId = `dedao-${String(store.user?.uid_hazy ?? 'local')}`
-    tokenConfig.getDrmAuthToken = async (playAuthIDs: string, vid: string, unionInfo: string) => {
+    const getDrmAuthToken = async (playAuthIDs: string, vid: string, unionInfo: string) => {
+      recordPlaybackProbe({
+        kind: 'drm_query',
+        source: 'start',
+        play_auth_ids_present: Boolean(String(playAuthIDs ?? '').trim()),
+        vid_present: Boolean(String(vid ?? '').trim()),
+        union_present: Boolean(String(unionInfo ?? '').trim()),
+      })
       const keyToken = activePlaybackAuth?.keyToken ?? ''
       if (!keyToken) throw new Error('私有加密播放凭证已失效')
-      const token = await invokeBackend<string>('GetVolcPrivateDrmAuthToken', keyToken, playAuthIDs, vid, unionInfo)
-      if (typeof token !== 'string' || !token.trim()) {
-        throw new Error('私有加密授权结果为空')
+      try {
+        const local = buildPrivateDrmAuthQuery(keyToken, playAuthIDs, vid, unionInfo)
+        recordPlaybackProbe({ kind: 'drm_query', source: 'local', query_bytes: local.length })
+        return local
+      } catch (localErr) {
+        const token = await invokeBackend<string>('GetVolcPrivateDrmAuthToken', keyToken, playAuthIDs, vid, unionInfo)
+        if (typeof token !== 'string' || !token.trim()) {
+          throw localErr instanceof Error ? localErr : new Error('私有加密授权结果为空')
+        }
+        recordPlaybackProbe({ kind: 'drm_query', source: 'backend', query_bytes: token.length })
+        return token
       }
-      return token
     }
+    tokenConfig.getDrmAuthToken = getDrmAuthToken
+    playerOptions.getDrmAuthToken = getDrmAuthToken
   }
 
   if (mediaId.value && securityToken.value) {
@@ -463,13 +650,85 @@ const createPlayer = async (playbackAuth: VolcPlaybackAuth) => {
     }
   }
 
+  if (!restorePipAvailability) {
+    restorePipAvailability = installDesktopPipAvailability(document, window.location.protocol)
+  }
+
   const instance = new (VePlayer as any)(playerOptions)
+
+  const attachCssPip = () => {
+    const playerVideo = playerRoot.value?.querySelector('video') as HTMLVideoElement | null
+    if (!playerVideo || !playerRoot.value) return
+    restoreCssPip?.()
+    restoreCssPip = installCssPictureInPictureFallback(playerVideo, playerRoot.value)
+  }
+  let resumeAttached = false
+  const attachResumePosition = () => {
+    const playerVideo = playerRoot.value?.querySelector('video') as HTMLVideoElement | null
+    if (!playerVideo || !mediaId.value || resumeAttached) return
+    resumeAttached = true
+    const saved = readPlaybackPosition(window.localStorage, mediaId.value)
+    const applySaved = () => {
+      if (saved > 0 && Number.isFinite(playerVideo.duration) && saved < playerVideo.duration - 5) {
+        playerVideo.currentTime = saved
+      }
+    }
+    if (playerVideo.readyState >= 1) applySaved()
+    else playerVideo.addEventListener('loadedmetadata', applySaved, { once: true })
+    const persist = () => {
+      writePlaybackPosition(window.localStorage, mediaId.value, playerVideo.currentTime, playerVideo.duration)
+    }
+    playerVideo.addEventListener('timeupdate', persist)
+    playerVideo.addEventListener('ended', () => {
+      writePlaybackPosition(window.localStorage, mediaId.value, 0, playerVideo.duration)
+    })
+  }
+  instance?.on?.('ready', () => {
+    attachCssPip()
+    attachResumePosition()
+  })
+  window.setTimeout(() => {
+    attachCssPip()
+    attachResumePosition()
+  }, 0)
+
+  const syncWindowFullscreen = (full: boolean) => {
+    const runtime = (window as Window & {
+      runtime?: { WindowFullscreen?: () => void; WindowUnfullscreen?: () => void }
+    }).runtime
+    try {
+      if (full) runtime?.WindowFullscreen?.()
+      else runtime?.WindowUnfullscreen?.()
+    } catch {
+      // Window chrome APIs are optional on preview builds.
+    }
+  }
+  instance?.on?.('fullscreen_change', (full: boolean) => syncWindowFullscreen(Boolean(full)))
+  instance?.on?.('cssFullscreen_change', (full: boolean) => syncWindowFullscreen(Boolean(full)))
 
   instance?.on?.('error', (...args: any[]) => {
     const msg = args.map(getErrorMessage).join(' ')
     if (!msg) return
     errorText.value = msg
+    const payload = args.find((item) => item && typeof item === 'object') as Record<string, unknown> | undefined
+    const nested = (payload?.veError || payload?.error || payload) as Record<string, unknown> | undefined
+    recordPlaybackProbe({
+      kind: 'player_error',
+      error_bytes: msg.length,
+      drm_error: msg.includes('DRM_ERROR') || msg.includes('CUSTOM_LICENSE'),
+      error_code: Number(payload?.errorCode ?? payload?.code ?? nested?.code ?? 0) || 0,
+      error_type: String(payload?.errorType ?? nested?.errorType ?? ''),
+    })
   })
+
+  window.setTimeout(() => {
+    const g = window as any
+    recordPlaybackProbe({
+      kind: 'plugins',
+      dash_plugin: typeof g.DashPlugin,
+      veplayer: typeof g.VePlayer,
+    })
+  }, 2500)
 
   playerSdk.value = instance
 }
@@ -637,6 +896,28 @@ onUnmounted(() => {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border-soft) 82%, transparent);
   background: color-mix(in srgb, #000 88%, var(--card-bg) 12%);
+}
+
+.player-workspace:has(.xgplayer-is-cssfullscreen),
+.player-workspace:has(.xgplayer-is-fullscreen),
+.player-stage:has(.xgplayer-is-cssfullscreen),
+.player-stage:has(.xgplayer-is-fullscreen),
+.veplayer-page:has(.xgplayer-is-cssfullscreen),
+.veplayer-page:has(.xgplayer-is-fullscreen) {
+  overflow: visible;
+  z-index: 40;
+}
+
+.veplayer-container.dedao-css-pip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: min(420px, 42vw);
+  height: min(236px, 28vh);
+  z-index: 10000;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(8, 18, 32, 0.35);
 }
 
 .veplayer-container {

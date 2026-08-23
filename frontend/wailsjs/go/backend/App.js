@@ -158,10 +158,6 @@ export function GetVolcPrivateDrmAuthToken(arg1, arg2, arg3, arg4) {
   return window['go']['backend']['App']['GetVolcPrivateDrmAuthToken'](arg1, arg2, arg3, arg4);
 }
 
-export function ProxyVolcVodGet(arg1) {
-  return window['go']['backend']['App']['ProxyVolcVodGet'](arg1);
-}
-
 export function KnowledgeCreateNote(arg1, arg2) {
   return window['go']['backend']['App']['KnowledgeCreateNote'](arg1, arg2);
 }
@@ -220,6 +216,18 @@ export function OpenFileDialog(arg1) {
 
 export function OutsideDetail(arg1) {
   return window['go']['backend']['App']['OutsideDetail'](arg1);
+}
+
+export function ProxyMediaGet(arg1, arg2) {
+  return window['go']['backend']['App']['ProxyMediaGet'](arg1, arg2);
+}
+
+export function ProxyVolcVodGet(arg1) {
+  return window['go']['backend']['App']['ProxyVolcVodGet'](arg1);
+}
+
+export function RecordPlaybackProbe(arg1) {
+  return window['go']['backend']['App']['RecordPlaybackProbe'](arg1);
 }
 
 export function SearchHot() {

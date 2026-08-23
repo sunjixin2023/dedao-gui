@@ -72,24 +72,31 @@ func main() {
 			},
 		},
 		// Mac platform specific options
-		Mac: &mac.Options{
-			TitleBar: &mac.TitleBar{
-				TitlebarAppearsTransparent: false,
-				HideTitle:                  false,
-				HideTitleBar:               false,
-				FullSizeContent:            false,
-				UseToolbar:                 false,
-				HideToolbarSeparator:       true,
-			},
-			Appearance:           mac.DefaultAppearance,
-			WebviewIsTransparent: backend.DesktopMacWindowPolicy().WebviewIsTransparent,
-			WindowIsTranslucent:  backend.DesktopMacWindowPolicy().WindowIsTranslucent,
-			About: &mac.AboutInfo{
-				Title:   "dedao",
-				Message: "https://github.com/yann0917/dedao-gui",
-				Icon:    icon,
-			},
-		},
+		Mac: func() *mac.Options {
+			policy := backend.DesktopMacWindowPolicy()
+			opts := &mac.Options{
+				TitleBar: &mac.TitleBar{
+					TitlebarAppearsTransparent: false,
+					HideTitle:                  false,
+					HideTitleBar:               false,
+					FullSizeContent:            false,
+					UseToolbar:                 false,
+					HideToolbarSeparator:       true,
+				},
+				Appearance:           mac.DefaultAppearance,
+				WebviewIsTransparent: policy.WebviewIsTransparent,
+				WindowIsTranslucent:  policy.WindowIsTranslucent,
+				About: &mac.AboutInfo{
+					Title:   "dedao",
+					Message: "https://github.com/yann0917/dedao-gui",
+					Icon:    icon,
+				},
+			}
+			if policy.FullscreenEnabled {
+				opts.Preferences = &mac.Preferences{FullscreenEnabled: mac.Enabled}
+			}
+			return opts
+		}(),
 		Linux: &linux.Options{
 			Icon: icon,
 		},

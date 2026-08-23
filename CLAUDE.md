@@ -40,6 +40,9 @@ wails build -platform windows/amd64
 # Run backend tests
 go test ./backend/...
 
+# Run frontend unit tests (volc playback + chrome contracts)
+npm --prefix frontend test
+
 # Run specific test
 go test ./backend/utils -v
 ```
@@ -115,3 +118,17 @@ func (s *Service) MethodName() (result *ResultType, err error) {
 - User config: Stored in BadgerDB at `~/.config/dedao/`
 - App config: `wails.json` for Wails settings
 - Frontend config: `vite.config.ts` for build settings
+
+### Signed V2 private DASH (desktop)
+
+Civilization-course playback on `wails://` is a local VePlayer 1.15.1 + DashPlugin path. Do not regress these constraints:
+
+1. **Private DRM, not Widevine.** `desktopPlayerChrome` aside, `privateDashPluginOptions()` must keep `useEME: false`. VePlayer defaults `useEME: true`, which waits for a CDM license and spins forever while segments still download.
+2. **SDK license.** VePlayer 1.11+ checks a domain-bound WASM license. Install `_needExemptions` *before* the script loads (`installVePlayerLicenseExemption`). Do **not** put `_Module` on `Object.prototype` — that hangs DASH decrypt WASM. Re-apply `installVePlayerSdkLicenseBypass` *after* `destroyPlayer()`; destroy must not restore the bypass before `new VePlayer()`.
+3. **Fake XHR.** Native `status` / `readyState` are getter-only. Assigning them in a module throws and skips `send()` (error 7200). Shadow fields with `defineProperty` via the volc URL bridge.
+4. **Media/license proxy.** `ProxyVolcVodGet` and `ProxyMediaGet` exist because `wails://` cannot CORS-fetch `vod.volcengineapi.com` or `*.umiwi.com`. Allowlist hosts only; rewrite `http://` to `https://`. Probe log: macOS temp `dedao-playback-probe.log` (no tokens).
+5. **Fullscreen / PiP.** macOS WKWebView fullscreen is off unless `DesktopMacWindowPolicy().FullscreenEnabled` sets `mac.Preferences.FullscreenEnabled`. On `wails:`, force CSS fullscreen and a CSS PiP fallback (`desktopPlayerChromeOptions`, `installDesktopPipAvailability`). Document PiP is https/file only.
+6. **Definition.** Keep `volcDefinitionMap()` covering 360p–1080p/`original`, `definition.isShowIcon: true`, and `autoBitrateOpts.enable: false` so the user can pick a rung instead of ABR.
+7. **Probe log.** Do not record every successful `media_proxy` line. Rotate `dedao-playback-probe.log` after 256KiB. Never write tokens.
+
+Frontend tests: `npm --prefix frontend test`. Backend: `go test ./backend/...`.

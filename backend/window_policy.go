@@ -9,12 +9,14 @@ import (
 type MacWindowPolicy struct {
 	WebviewIsTransparent bool
 	WindowIsTranslucent  bool
+	FullscreenEnabled    bool
 }
 
 func DesktopMacWindowPolicy() MacWindowPolicy {
 	return MacWindowPolicy{
 		WebviewIsTransparent: false,
 		WindowIsTranslucent:  false,
+		FullscreenEnabled:    true,
 	}
 }
 

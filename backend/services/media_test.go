@@ -66,3 +66,22 @@ func TestDecodeVolcJSONReadsRawAPIResponse(t *testing.T) {
 		t.Fatalf("decodeVolcJSON() response = %#v", response)
 	}
 }
+
+func TestCollectPlayURLHostsReturnsHostnamesWithoutSecrets(t *testing.T) {
+	info := &VodPlayInfoResp{
+		Result: VodPlayInfoModel{
+			AdaptiveInfo: VodAdaptiveInfo{MainPlayUrl: "https://bd-vod.umiwi.com/a.mpd?sig=secret-token"},
+			PlayInfoList: []VodPlayInfo{
+				{MainPlayUrl: "http://vod.volces.com/x?tok=secret-token"},
+				{BackupPlayUrl: "https://bd-vod.umiwi.com/b"},
+			},
+		},
+	}
+	got := strings.Join(collectPlayURLHosts(info), ",")
+	if !strings.Contains(got, "bd-vod.umiwi.com") || !strings.Contains(got, "vod.volces.com") {
+		t.Fatalf("hosts = %q", got)
+	}
+	if strings.Contains(got, "secret-token") || strings.Contains(got, "/") {
+		t.Fatalf("hosts leaked URL secrets: %q", got)
+	}
+}

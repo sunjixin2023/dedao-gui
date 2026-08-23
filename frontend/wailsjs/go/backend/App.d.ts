@@ -83,8 +83,6 @@ export function GetVolcPlayInfoByToken(arg1:string,arg2:string):Promise<services
 
 export function GetVolcPrivateDrmAuthToken(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
-export function ProxyVolcVodGet(arg1:string):Promise<string>;
-
 export function KnowledgeCreateNote(arg1:string,arg2:string):Promise<services.CreateNoteResp>;
 
 export function LiveBase(arg1:string):Promise<services.LiveBase>;
@@ -114,6 +112,12 @@ export function OpenDirectoryDialog(arg1:string):Promise<string>;
 export function OpenFileDialog(arg1:string):Promise<string>;
 
 export function OutsideDetail(arg1:string):Promise<services.OutsideDetail>;
+
+export function ProxyMediaGet(arg1:string,arg2:string):Promise<services.MediaProxyResult>;
+
+export function ProxyVolcVodGet(arg1:string):Promise<string>;
+
+export function RecordPlaybackProbe(arg1:string):Promise<void>;
 
 export function SearchHot():Promise<services.SearchTot>;
 
