@@ -40,10 +40,80 @@ type HtmlContent struct {
 
 type HtmlToEpub struct {
 	EpubOptions
-	DefaultCover []byte
-	book         *epub.Epub
-	imgIdx       int
+	DefaultCover   []byte
+	book           *epub.Epub
+	imgIdx         int
+	contentCSS     string
+	stylesheetTemp string
 }
+
+// contentStylesheet supplies the reading defaults the source SVG never carries:
+// line spacing, paragraph rhythm, CJK-appropriate indentation and image
+// fitting. Sizes stay relative so the reader's own font-size setting still
+// scales everything; nothing here sets an absolute font-size or a font-family.
+const contentStylesheet = `html {
+  -epub-hyphens: auto;
+  hyphens: auto;
+}
+
+body {
+  margin: 0 5%;
+  line-height: 1.75;
+  text-align: justify;
+  word-wrap: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+}
+
+p {
+  margin: 0 0 0.6em;
+  text-indent: 2em;
+  line-height: inherit;
+}
+
+/* a paragraph that only carries an image should not be indented */
+p:has(> img),
+p > img {
+  text-indent: 0;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 1.4em 0 0.7em;
+  line-height: 1.4;
+  text-indent: 0;
+  text-align: left;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+div.header1, div.header2, div.header3,
+div.header4, div.header5, div.header6 {
+  text-indent: 0;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+sup, sub {
+  line-height: 1;
+  font-size: 0.75em;
+}
+
+a {
+  text-decoration: none;
+}
+
+aside[epub|type~="footnote"] {
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+
+ol.duokan-footnote-content {
+  text-indent: 0;
+}
+`
 
 func (h *HtmlToEpub) Run() (err error) {
 	if len(h.HTML) == 0 {
@@ -57,6 +127,7 @@ func (h *HtmlToEpub) run() (err error) {
 	if err != nil {
 		return
 	}
+	defer h.cleanupStylesheet()
 
 	for _, html := range h.HTML {
 		err = h.add(html)
@@ -78,7 +149,50 @@ func (h *HtmlToEpub) genBook() error {
 	h.book = epub.NewEpub(h.Title)
 	h.book.SetAuthor(h.Author)
 	h.book.SetDescription(h.Description)
+	if err := h.setStylesheet(); err != nil {
+		// styling is an improvement, not a precondition for a readable book
+		log.Printf("警告: 无法添加正文样式表: %v", err)
+	}
 	return h.setCover()
+}
+
+// setStylesheet registers the reading stylesheet once so every section can
+// reference it. Chapters carry no styling of their own beyond inline spans.
+//
+// AddCSS only records the source path — the file is not read until Write — so
+// the temp file has to outlive this call and is cleaned up after the book is
+// written.
+func (h *HtmlToEpub) setStylesheet() error {
+	temp, err := os.CreateTemp("", "dedao-content-*.css")
+	if err != nil {
+		return fmt.Errorf("can't create stylesheet tempfile: %w", err)
+	}
+
+	if _, err = temp.WriteString(contentStylesheet); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(temp.Name())
+		return fmt.Errorf("can't write stylesheet: %w", err)
+	}
+	if err = temp.Close(); err != nil {
+		_ = os.Remove(temp.Name())
+		return fmt.Errorf("can't close stylesheet: %w", err)
+	}
+	h.stylesheetTemp = temp.Name()
+
+	cssPath, err := h.book.AddCSS(temp.Name(), "content.css")
+	if err != nil {
+		return fmt.Errorf("can't add stylesheet: %w", err)
+	}
+	h.contentCSS = cssPath
+	return nil
+}
+
+func (h *HtmlToEpub) cleanupStylesheet() {
+	if h.stylesheetTemp == "" {
+		return
+	}
+	_ = os.Remove(h.stylesheetTemp)
+	h.stylesheetTemp = ""
 }
 
 func (h *HtmlToEpub) setCover() (err error) {
@@ -130,12 +244,12 @@ func (h *HtmlToEpub) add(html HtmlContent) (err error) {
 	}
 	if html.ChapterID != "cover.xhtml" {
 		if len(html.Toc) > 0 {
-			_, err = h.book.AddSection(content, html.Toc[0].Text, html.ChapterID, "")
+			_, err = h.book.AddSection(content, html.Toc[0].Text, html.ChapterID, h.contentCSS)
 			if err != nil {
 				return
 			}
 		} else {
-			_, err = h.book.AddSection(content, "", html.ChapterID, "")
+			_, err = h.book.AddSection(content, "", html.ChapterID, h.contentCSS)
 			if err != nil {
 				return
 			}

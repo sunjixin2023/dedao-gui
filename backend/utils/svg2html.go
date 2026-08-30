@@ -177,7 +177,7 @@ func Svg2Epub(outputDir, title string, svgContents []*SvgContent, opt EpubOption
 			cover = coverUrl
 		}
 		htmlAll = append(htmlAll, HtmlContent{
-			Content:   chapter,
+			Content:   relativeFontSizes(chapter),
 			ChapterID: svgContent.ChapterID,
 			Toc:       chapterToc[svgContent.ChapterID],
 		})
@@ -250,6 +250,77 @@ func AllInOneHtml(svgContents []*SvgContent, toc []EbookToc) (result string, err
 	return
 }
 
+var fontSizePxRe = regexp.MustCompile(`font-size:\s*(\d+(?:\.\d+)?)px`)
+
+// relativeFontSizes rewrites the pixel font sizes baked into every span by the
+// source SVG into em units. Absolute sizes override the reader's own font-size
+// setting, so a book full of `font-size:16px` cannot be resized at all. The
+// most frequent size in the document becomes 1em, which keeps the relative
+// hierarchy the publisher intended (headings larger, notes smaller) while
+// letting the reader scale the whole thing.
+func relativeFontSizes(doc string) string {
+	matches := fontSizePxRe.FindAllStringSubmatch(doc, -1)
+	if len(matches) == 0 {
+		return doc
+	}
+
+	counts := make(map[string]int, 8)
+	for _, m := range matches {
+		counts[m[1]]++
+	}
+
+	// modal size wins; ties break toward the larger size so body text, not a
+	// short run of captions, ends up as the 1em baseline
+	baseRaw, baseCount := "", -1
+	for size, n := range counts {
+		if n > baseCount {
+			baseRaw, baseCount = size, n
+			continue
+		}
+		if n == baseCount {
+			if cur, err1 := strconv.ParseFloat(size, 64); err1 == nil {
+				if prev, err2 := strconv.ParseFloat(baseRaw, 64); err2 == nil && cur > prev {
+					baseRaw = size
+				}
+			}
+		}
+	}
+
+	base, err := strconv.ParseFloat(baseRaw, 64)
+	if err != nil || base <= 0 {
+		return doc
+	}
+
+	return fontSizePxRe.ReplaceAllStringFunc(doc, func(match string) string {
+		sub := fontSizePxRe.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		px, err := strconv.ParseFloat(sub[1], 64)
+		if err != nil || px <= 0 {
+			return match
+		}
+		if px == base {
+			return "font-size:1em"
+		}
+		em := strconv.FormatFloat(px/base, 'f', 3, 64)
+		em = strings.TrimRight(strings.TrimRight(em, "0"), ".")
+		if em == "" || em == "0" {
+			return match
+		}
+		return "font-size:" + em + "em"
+	})
+}
+
+// inlineFormat is the set of inline tags wrapping a run of glyphs. Comparing
+// two of these tells us whether the run continues or has to be re-tagged.
+type inlineFormat struct {
+	bold   bool
+	italic bool
+	sup    bool
+	sub    bool
+}
+
 // OneByOneHtml one by one generate chapter html
 // eType: html/pdf/epub, index: []*SvgContent index, svgContent: one chapter content
 func OneByOneHtml(eType string, index int, svgContent *SvgContent, toc []EbookToc) (result, cover string, err error) {
@@ -298,6 +369,45 @@ func OneByOneHtml(eType string, index int, svgContent *SvgContent, toc []EbookTo
 
 			lineStyle, currentSpanStyle := "", ""
 			hasUncloseSpan := false
+
+			// Glyphs arrive one per SVG element, so tagging each one
+			// individually produced <b>第</b><b>1</b><b>章</b>. Hold a run open
+			// while the formatting is unchanged, the way spans are handled above.
+			openFormat := inlineFormat{}
+			closeInlineFormat := func() {
+				if openFormat.sub {
+					cont += "</sub>"
+				}
+				if openFormat.sup {
+					cont += "</sup>"
+				}
+				if openFormat.italic {
+					cont += "</i>"
+				}
+				if openFormat.bold {
+					cont += "</b>"
+				}
+				openFormat = inlineFormat{}
+			}
+			applyInlineFormat := func(want inlineFormat) {
+				if want == openFormat {
+					return
+				}
+				closeInlineFormat()
+				if want.bold {
+					cont += "<b>"
+				}
+				if want.italic {
+					cont += "<i>"
+				}
+				if want.sup {
+					cont += "<sup>"
+				}
+				if want.sub {
+					cont += "<sub>"
+				}
+				openFormat = want
+			}
 
 			for i, item := range lineContent[v] {
 				// image class=epub-footnote 是注释图片
@@ -408,6 +518,8 @@ func OneByOneHtml(eType string, index int, svgContent *SvgContent, toc []EbookTo
 
 				case "text":
 					if hasUncloseSpan && item.Style != currentSpanStyle {
+						// inner tags must close before the span that encloses them
+						closeInlineFormat()
 						cont += "</span>"
 						hasUncloseSpan = false
 					}
@@ -426,22 +538,12 @@ func OneByOneHtml(eType string, index int, svgContent *SvgContent, toc []EbookTo
 
 					item.Content = html.EscapeString(item.Content)
 
-					tags := []struct {
-						condition bool
-						open      string
-						close     string
-					}{
-						{item.IsBold, "<b>", "</b>"},
-						{item.IsItalic, "<i>", "</i>"},
-						{item.IsFn, "<sup>", "</sup>"},
-						{item.IsSub, "<sub>", "</sub>"},
-					}
-
-					for _, tag := range tags {
-						if tag.condition {
-							cont += tag.open
-						}
-					}
+					applyInlineFormat(inlineFormat{
+						bold:   item.IsBold,
+						italic: item.IsItalic,
+						sup:    item.IsFn,
+						sub:    item.IsSub,
+					})
 
 					if item.Fn.Href != "" {
 						cont += fmt.Sprintf(`<a id=%s href=%s`, item.ID, item.Fn.Href)
@@ -457,15 +559,11 @@ func OneByOneHtml(eType string, index int, svgContent *SvgContent, toc []EbookTo
 						cont += "</a>"
 					}
 
-					for i := len(tags) - 1; i >= 0; i-- {
-						if tags[i].condition {
-							cont += tags[i].close
-						}
-					}
-
 					contWOTag += item.Content
 				}
 				if i == len(lineContent[v])-1 {
+					// the run cannot outlive the line
+					closeInlineFormat()
 					matchH := false
 					contWOTag = html.UnescapeString(contWOTag)
 					contWOTag = strings.ReplaceAll(contWOTag, "&nbsp;", "")
