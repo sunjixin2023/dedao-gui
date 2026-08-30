@@ -126,6 +126,10 @@ export function GetHomeInitialState() {
   return window['go']['backend']['App']['GetHomeInitialState']();
 }
 
+export function GetMediaGateWebPlayInfo(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['GetMediaGateWebPlayInfo'](arg1, arg2, arg3);
+}
+
 export function GetNavbar() {
   return window['go']['backend']['App']['GetNavbar']();
 }
@@ -186,6 +190,10 @@ export function OdobUserInfo() {
   return window['go']['backend']['App']['OdobUserInfo']();
 }
 
+export function OfficialOrderList(arg1, arg2) {
+  return window['go']['backend']['App']['OfficialOrderList'](arg1, arg2);
+}
+
 export function OnSecondInstanceLaunch(arg1) {
   return window['go']['backend']['App']['OnSecondInstanceLaunch'](arg1);
 }
@@ -202,8 +210,16 @@ export function OutsideDetail(arg1) {
   return window['go']['backend']['App']['OutsideDetail'](arg1);
 }
 
+export function ResolveVideoPlayback(arg1, arg2) {
+  return window['go']['backend']['App']['ResolveVideoPlayback'](arg1, arg2);
+}
+
 export function SearchHot() {
   return window['go']['backend']['App']['SearchHot']();
+}
+
+export function SearchMoreContent(arg1, arg2, arg3) {
+  return window['go']['backend']['App']['SearchMoreContent'](arg1, arg2, arg3);
 }
 
 export function SetDir(arg1) {

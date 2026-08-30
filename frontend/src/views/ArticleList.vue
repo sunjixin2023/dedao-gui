@@ -410,6 +410,30 @@ const gotoArticleDetail = (row: any) => {
     })
 }
 
+const normalizeStreamUrl = (raw: unknown) => {
+    const value = String(raw ?? '').trim()
+    if (!value) return ''
+    if (value.startsWith('http://') || value.startsWith('https://')) return value
+    if (value.startsWith('//')) return `https:${value}`
+    return ''
+}
+
+const pickVideoStreamUrl = (video: any | null | undefined) => {
+    const candidates = [
+        video?.bitrate_1080,
+        video?.bitrate_720,
+        video?.bitrate_480,
+        video?.bitrate_1080_audio,
+        video?.bitrate_720_audio,
+        video?.bitrate_480_audio,
+    ]
+    for (const candidate of candidates) {
+        const url = normalizeStreamUrl(candidate)
+        if (url) return url
+    }
+    return ''
+}
+
 const gotoArticleVideo = (row: any) => {
     const pickVideoMediaBaseInfo = (list: any[] | undefined) => {
         if (!list || list.length === 0) return null
@@ -417,10 +441,13 @@ const gotoArticleVideo = (row: any) => {
     }
 
     const mediaBase = pickVideoMediaBaseInfo(row?.media_base_info)
-    const mediaId = String(mediaBase?.source_id ?? '')
-    const securityToken = String(mediaBase?.security_token ?? '')
+    const mediaId = String(mediaBase?.source_id ?? '').trim()
+    const securityToken = String(mediaBase?.security_token ?? '').trim()
+    const videoInfo = Array.isArray(row?.video) && row.video.length > 0 ? row.video[0] : null
+    const directStreamUrl = pickVideoStreamUrl(videoInfo)
+    const playAuthToken = String(videoInfo?.token ?? '').trim()
 
-    if (!mediaId || !securityToken) {
+    if (!directStreamUrl && !playAuthToken && (!mediaId || !securityToken)) {
         ElMessage({ message: '未获取到可播放的鉴权信息', type: 'warning' })
         return
     }
@@ -429,6 +456,8 @@ const gotoArticleVideo = (row: any) => {
         from: "course",
         media_id: mediaId,
         security_token: securityToken,
+        stream_url: directStreamUrl,
+        play_auth_token: playAuthToken,
         title: row.title,
         parentTitle: breadcrumbTitle.value
     })

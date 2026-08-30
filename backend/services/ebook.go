@@ -567,16 +567,16 @@ type EbookShelfAddData struct {
 }
 
 type EbookNoteItem struct {
-	NoteID     int64      `json:"note_id"`
-	NoteIDHazy string     `json:"note_id_hazy"`
-	Note       string     `json:"note"`
-	NoteLine   string     `json:"note_line"`
-	NoteType   int        `json:"note_type"`
-	CreateTime int64      `json:"create_time"`
-	UpdateTime int64      `json:"update_time"`
-	State      int        `json:"state"`
-	RefID      string     `json:"ref_id"`
-	Extra      NotesExtra `json:"extra"`
+	NoteID     int64       `json:"note_id"`
+	NoteIDHazy string      `json:"note_id_hazy"`
+	Note       string      `json:"note"`
+	NoteLine   string      `json:"note_line"`
+	NoteType   int         `json:"note_type"`
+	CreateTime int64       `json:"create_time"`
+	UpdateTime int64       `json:"update_time"`
+	State      int         `json:"state"`
+	RefID      interface{} `json:"ref_id"`
+	Extra      NotesExtra  `json:"extra"`
 }
 
 type EbookNoteListResp struct {
@@ -584,15 +584,15 @@ type EbookNoteListResp struct {
 }
 
 type EbookNoteSaveResp struct {
-	DeletedIds []string   `json:"deleted_ids"`
-	NoteID     int64      `json:"note_id"`
-	NoteIDHazy string     `json:"note_id_hazy"`
-	Note       string     `json:"note"`
-	NoteLine   string     `json:"note_line"`
-	NoteType   int        `json:"note_type"`
-	UpdateTime int64      `json:"update_time"`
-	State      int        `json:"state"`
-	Extra      NotesExtra `json:"extra"`
+	DeletedIds []interface{} `json:"deleted_ids"`
+	NoteID     int64         `json:"note_id"`
+	NoteIDHazy string        `json:"note_id_hazy"`
+	Note       string        `json:"note"`
+	NoteLine   string        `json:"note_line"`
+	NoteType   int           `json:"note_type"`
+	UpdateTime int64         `json:"update_time"`
+	State      int           `json:"state"`
+	Extra      NotesExtra    `json:"extra"`
 }
 
 type EbookNoteWriteReq struct {
@@ -641,8 +641,11 @@ func (r *EbookNoteWriteReq) toBody() map[string]interface{} {
 		"note_type":           noteType,
 		"ref_id":              r.RefID,
 		"state":               state,
-		"tags":                r.Tags,
 		"update_time":         updateTime,
+	}
+	// Official endpoints reject empty tags on ebook create/update.
+	if len(r.Tags) > 0 {
+		body["tags"] = r.Tags
 	}
 	if r.NoteID > 0 {
 		body["note_id"] = r.NoteID
@@ -716,6 +719,7 @@ func (s *Service) EbookNoteList(bookEnid string, bookID int, isOldVersion int) (
 
 // EbookNoteCreate 创建电子书笔记（官方）
 func (s *Service) EbookNoteCreate(req *EbookNoteWriteReq) (resp *EbookNoteSaveResp, err error) {
+	s.prepareWriteSession()
 	body, err := s.reqEbookNoteCreate(req.toBody())
 	if err != nil {
 		return
@@ -729,6 +733,7 @@ func (s *Service) EbookNoteCreate(req *EbookNoteWriteReq) (resp *EbookNoteSaveRe
 
 // EbookNoteUpdate 更新电子书笔记（官方）
 func (s *Service) EbookNoteUpdate(req *EbookNoteWriteReq) (resp *EbookNoteSaveResp, err error) {
+	s.prepareWriteSession()
 	body, err := s.reqEbookNoteUpdate(req.toBody())
 	if err != nil {
 		return
@@ -742,6 +747,7 @@ func (s *Service) EbookNoteUpdate(req *EbookNoteWriteReq) (resp *EbookNoteSaveRe
 
 // NoteDestroy 删除笔记（官方）
 func (s *Service) NoteDestroy(noteIDHazy string) (resp *NoteDestroyResp, err error) {
+	s.prepareWriteSession()
 	body, err := s.reqNotesDestroy(noteIDHazy)
 	if err != nil {
 		return

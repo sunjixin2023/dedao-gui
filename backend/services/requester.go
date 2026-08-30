@@ -564,17 +564,13 @@ func (s *Service) reqTopicNotesTimeline(maxID string) (io.ReadCloser, error) {
 // 官方 Web 对应: /api/pc/ledgers/v1/note/post
 func (s *Service) reqTopicCreateNote(noteContent, topicIDHazy string) (io.ReadCloser, error) {
 	data := map[string]interface{}{
-		"extra":        map[string]interface{}{},
-		"folder_ids":   []string{},
 		"images":       []string{},
 		"note_content": noteContent,
 		"note_type":    8,
+		// 线上 Web 请求体中该字段始终存在，空串表示不带话题
+		"notes_topic_id_hazy": topicIDHazy,
 		"source_type":  0,
 		"state":        5,
-		"tags":         []string{},
-	}
-	if topicIDHazy != "" {
-		data["notes_topic_id_hazy"] = topicIDHazy
 	}
 
 	resp, err := s.client.R().
@@ -655,6 +651,16 @@ func (s *Service) reqVolc(mediaID, securityToken string) (io.ReadCloser, error) 
 			"media_id_str":   mediaID,
 			"security_token": securityToken,
 		}).Post("/media_gate/gate/api/v1/volc")
+	return handleHTTPResponse(resp, err)
+}
+
+func (s *Service) reqMediaGateWeb(mediaID, mediaAliasID, securityToken string) (io.ReadCloser, error) {
+	resp, err := s.client.R().
+		SetBody(map[string]interface{}{
+			"media_id_str":   mediaID,
+			"media_alias_id": mediaAliasID,
+			"security_token": securityToken,
+		}).Post("/media_gate/gate/api/v1/web")
 	return handleHTTPResponse(resp, err)
 }
 

@@ -25,8 +25,28 @@ export function useAppRouter() {
     route,
 
     // 类型安全的导航方法
+    pushStoreHome() {
+      return router.push({ name: ROUTE_NAMES.STORE_HOME });
+    },
+
+    pushStoreOrders(query?: Record<string, any>) {
+      return router.push({ name: ROUTE_NAMES.STORE_ORDERS, query });
+    },
+
+    pushStoreMembership() {
+      return router.push({ name: ROUTE_NAMES.STORE_MEMBERSHIP });
+    },
+
+    pushProductDetail(type: string, id: string | number, query?: Record<string, any>) {
+      return router.push(buildRoute.storeDetail(type, id, query));
+    },
+
     pushCourseList() {
       return router.push({ name: ROUTE_NAMES.COURSE });
+    },
+
+    pushAllContent() {
+      return router.push({ name: ROUTE_NAMES.ALL_CONTENT });
     },
 
     pushCourseDetail(classId: string | number, query?: Record<string, any>) {

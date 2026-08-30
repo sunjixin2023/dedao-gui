@@ -4,6 +4,14 @@ export const ROUTES = {
   HOME: '/home',
   CATEGORY: '/category',
 
+  // 商店
+  STORE: {
+    HOME: '/store/home',
+    DETAIL: (type: string, id: string | number) => `/store/detail/${type}/${id}`,
+    ORDERS: '/store/orders',
+    MEMBERSHIP: '/store/membership',
+  },
+
   // 学习圈
   CHANNEL: {
     AI: '/channel/ai',
@@ -12,6 +20,7 @@ export const ROUTES = {
   // 我的学习
   BOUGHT: {
     BASE: '/bought',
+    ALL: '/bought/all',
     COURSE: '/bought/course',
     COURSE_DETAIL: (id: string | number) => `/bought/course/${id}`,
     ARTICLE: (id: string) => `/bought/article/${id}`,
@@ -49,11 +58,18 @@ export const ROUTE_NAMES = {
   HOME: 'home',
   CATEGORY: 'category',
 
+  // 商店
+  STORE_HOME: 'storeHome',
+  STORE_DETAIL: 'storeDetail',
+  STORE_ORDERS: 'storeOrders',
+  STORE_MEMBERSHIP: 'storeMembership',
+
   // 学习圈
   AI_CHANNEL: 'aiChannel',
 
   // 我的学习
   COURSE: 'course',
+  ALL_CONTENT: 'allContent',
   ARTICLE_LIST: 'articleList',
   ARTICLE: 'article',
   VIDEO: 'video',
@@ -120,6 +136,13 @@ export const buildRoute = {
   // 书评列表
   ebookComment: (query?: RouteQuery) => ({
     name: ROUTE_NAMES.EBOOK_COMMENT,
+    query,
+  }),
+
+  // 商店详情
+  storeDetail: (type: string, id: string | number, query?: RouteQuery) => ({
+    name: ROUTE_NAMES.STORE_DETAIL,
+    params: { type, id: String(id) },
     query,
   }),
 };

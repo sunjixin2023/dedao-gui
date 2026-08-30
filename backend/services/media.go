@@ -2,6 +2,8 @@ package services
 
 import (
 	"time"
+
+	"github.com/yann0917/dedao-gui/backend/utils"
 )
 
 // MediaBaseInfo media info
@@ -89,6 +91,33 @@ type MediaVolc struct {
 	LastModify   time.Time    `json:"last_modify"`
 	VersionId    int          `json:"version_id"`
 	Tracks       []VideoTrack `json:"tracks"`
+}
+
+type MediaWeb struct {
+	MediaAliasId string          `json:"media_alias_id"`
+	LastModify   time.Time       `json:"last_modify"`
+	VersionId    int             `json:"version_id"`
+	Tracks       []MediaWebTrack `json:"tracks"`
+}
+
+type MediaWebTrack struct {
+	TrackId      int              `json:"track_id"`
+	TrackType    int              `json:"track_type"`
+	TrackTypeTag string           `json:"track_type_tag"`
+	Formats      []MediaWebFormat `json:"formats"`
+}
+
+type MediaWebFormat struct {
+	Type       string `json:"type"`
+	Format     string `json:"format"`
+	RatesKbps  int    `json:"rates_kbps"`
+	Resolution any    `json:"resolution"`
+	Tag        string `json:"tag"`
+	URL        string `json:"url"`
+	Size       int64  `json:"size"`
+	Etag       string `json:"etag"`
+	DrmVersion int    `json:"drm_version"`
+	DrmToken   string `json:"drm_token"`
 }
 
 type VideoTrack struct {
@@ -226,6 +255,19 @@ func (s *Service) GetVolcPlayAuthToken(mediaIDStr, securityToken string) (info *
 	return
 }
 
+// GetMediaGateWebPlayInfo gets web playback urls from media gate.
+func (s *Service) GetMediaGateWebPlayInfo(mediaIDStr, mediaAliasID, securityToken string) (info *MediaWeb, err error) {
+	body, err := s.reqMediaGateWeb(mediaIDStr, mediaAliasID, securityToken)
+	if err != nil {
+		return
+	}
+	defer body.Close()
+	if err = handleJSONParse(body, &info); err != nil {
+		return
+	}
+	return
+}
+
 // GetVolcPlayInfo  火山引擎点播
 func (s *Service) GetVolcPlayInfo(query string) (info *VodPlayInfoResp, err error) {
 	body, err := s.reqVolcGetPlayInfo(query)
@@ -233,7 +275,10 @@ func (s *Service) GetVolcPlayInfo(query string) (info *VodPlayInfoResp, err erro
 		return
 	}
 	defer body.Close()
-	if err = handleJSONParse(body, &info); err != nil {
+
+	// Volcengine API returns raw JSON (not dedao's {h,c} envelope),
+	// so parse response body directly.
+	if err = utils.UnmarshalReader(body, &info); err != nil {
 		return
 	}
 	return

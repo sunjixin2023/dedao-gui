@@ -1,5 +1,150 @@
 package services
 
+import (
+	"bytes"
+	"encoding/json"
+	"strconv"
+	"strings"
+)
+
+// URLString accepts either a JSON string or a string array and keeps the first valid URL.
+type URLString string
+
+func (u *URLString) UnmarshalJSON(data []byte) error {
+	raw := bytes.TrimSpace(data)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*u = ""
+		return nil
+	}
+
+	decodeString := func(v json.RawMessage) string {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return ""
+		}
+		return strings.TrimSpace(s)
+	}
+
+	switch raw[0] {
+	case '"':
+		*u = URLString(decodeString(raw))
+	case '[':
+		var list []json.RawMessage
+		if err := json.Unmarshal(raw, &list); err != nil {
+			*u = ""
+			return nil
+		}
+		for _, item := range list {
+			if s := decodeString(item); s != "" {
+				*u = URLString(s)
+				return nil
+			}
+		}
+		*u = ""
+	case '{':
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			*u = ""
+			return nil
+		}
+		keys := []string{"url", "main", "hd", "ld", "src", "m3u8"}
+		for _, key := range keys {
+			if s := decodeString(obj[key]); s != "" {
+				*u = URLString(s)
+				return nil
+			}
+		}
+		*u = ""
+	default:
+		*u = ""
+	}
+	return nil
+}
+
+// IntValue accepts both JSON number and string number, empty value maps to 0.
+type IntValue int
+
+func (v *IntValue) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		*v = 0
+		return nil
+	}
+
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			*v = 0
+			return nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			*v = 0
+			return nil
+		}
+		*v = IntValue(n)
+		return nil
+	}
+
+	var num json.Number
+	if err := json.Unmarshal(data, &num); err != nil {
+		*v = 0
+		return nil
+	}
+	n, err := num.Int64()
+	if err != nil {
+		*v = 0
+		return nil
+	}
+	*v = IntValue(n)
+	return nil
+}
+
+// TextValue accepts string/number/bool/array and stores a plain string.
+type TextValue string
+
+func (v *TextValue) UnmarshalJSON(data []byte) error {
+	var decoded interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		*v = ""
+		return nil
+	}
+
+	toText := func(input interface{}) string {
+		switch t := input.(type) {
+		case string:
+			return strings.TrimSpace(t)
+		case float64:
+			if t == float64(int64(t)) {
+				return strconv.FormatInt(int64(t), 10)
+			}
+			return strconv.FormatFloat(t, 'f', -1, 64)
+		case bool:
+			return strconv.FormatBool(t)
+		default:
+			return ""
+		}
+	}
+
+	if arr, ok := decoded.([]interface{}); ok {
+		for _, item := range arr {
+			if s := toText(item); s != "" {
+				*v = TextValue(s)
+				return nil
+			}
+		}
+		*v = ""
+		return nil
+	}
+
+	*v = TextValue(toText(decoded))
+	return nil
+}
+
 type LiveTabList struct {
 	List []LiveTab `json:"list"`
 }
@@ -183,18 +328,18 @@ type LiveActivityInfo struct {
 }
 
 type LiveRoomPlaybackInfo struct {
-	Audio            string `json:"audio"`
-	DdmediaID        string `json:"ddmedia_id"`
-	Duration         int    `json:"duration"`
-	DurationText     string `json:"duration_text"`
-	Hd               string `json:"hd"`
-	Ld               string `json:"ld"`
-	PlaybackStatus   int    `json:"playback_status"`
-	ScreenProjection string `json:"screen_projection_url"`
-	Token            string `json:"token"`
-	TokenVersion     int    `json:"token_version"`
-	Ud               string `json:"ud"`
-	WebPcMediaToken  string `json:"web_pc_media_token"`
+	Audio            URLString `json:"audio"`
+	DdmediaID        TextValue `json:"ddmedia_id"`
+	Duration         IntValue  `json:"duration"`
+	DurationText     string    `json:"duration_text"`
+	Hd               URLString `json:"hd"`
+	Ld               URLString `json:"ld"`
+	PlaybackStatus   IntValue  `json:"playback_status"`
+	ScreenProjection URLString `json:"screen_projection_url"`
+	Token            TextValue `json:"token"`
+	TokenVersion     IntValue  `json:"token_version"`
+	Ud               URLString `json:"ud"`
+	WebPcMediaToken  TextValue `json:"web_pc_media_token"`
 }
 
 type LiveRoomDetail struct {
@@ -203,14 +348,14 @@ type LiveRoomDetail struct {
 	Intro            string               `json:"intro"`
 	DdURL            string               `json:"dd_url"`
 	CurrentTime      int                  `json:"currenttime"`
-	Ld               string               `json:"ld"`
-	Hd               string               `json:"hd"`
-	LdM3U8           string               `json:"ld_m3u8"`
-	HdM3U8           string               `json:"hd_m3u8"`
-	L1Flv            string               `json:"L1flv"`
-	L2Flv            string               `json:"L2flv"`
-	L3Flv            string               `json:"L3flv"`
-	MinibarStreamURL string               `json:"minibar_stream_url"`
+	Ld               URLString            `json:"ld"`
+	Hd               URLString            `json:"hd"`
+	LdM3U8           URLString            `json:"ld_m3u8"`
+	HdM3U8           URLString            `json:"hd_m3u8"`
+	L1Flv            URLString            `json:"L1flv"`
+	L2Flv            URLString            `json:"L2flv"`
+	L3Flv            URLString            `json:"L3flv"`
+	MinibarStreamURL URLString            `json:"minibar_stream_url"`
 	PlaybackInfo     LiveRoomPlaybackInfo `json:"playback_info"`
 }
 

@@ -66,6 +66,24 @@ export namespace backend {
 	        this.qrCodeString = source["qrCodeString"];
 	    }
 	}
+	export class VideoPlaybackResolve {
+	    play_auth_token: string;
+	    stream_url: string;
+	    vid: string;
+	    key_token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VideoPlaybackResolve(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.play_auth_token = source["play_auth_token"];
+	        this.stream_url = source["stream_url"];
+	        this.vid = source["vid"];
+	        this.key_token = source["key_token"];
+	    }
+	}
 
 }
 
@@ -3246,7 +3264,7 @@ export namespace services {
 	    create_time: number;
 	    update_time: number;
 	    state: number;
-	    ref_id: string;
+	    ref_id: any;
 	    extra: NotesExtra;
 	
 	    static createFrom(source: any = {}) {
@@ -3316,7 +3334,7 @@ export namespace services {
 		}
 	}
 	export class EbookNoteSaveResp {
-	    deleted_ids: string[];
+	    deleted_ids: any[];
 	    note_id: number;
 	    note_id_hazy: string;
 	    note: string;
@@ -4576,6 +4594,111 @@ export namespace services {
 		    return a;
 		}
 	}
+	export class MediaWebFormat {
+	    type: string;
+	    format: string;
+	    rates_kbps: number;
+	    resolution: any;
+	    tag: string;
+	    url: string;
+	    size: number;
+	    etag: string;
+	    drm_version: number;
+	    drm_token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaWebFormat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.format = source["format"];
+	        this.rates_kbps = source["rates_kbps"];
+	        this.resolution = source["resolution"];
+	        this.tag = source["tag"];
+	        this.url = source["url"];
+	        this.size = source["size"];
+	        this.etag = source["etag"];
+	        this.drm_version = source["drm_version"];
+	        this.drm_token = source["drm_token"];
+	    }
+	}
+	export class MediaWebTrack {
+	    track_id: number;
+	    track_type: number;
+	    track_type_tag: string;
+	    formats: MediaWebFormat[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaWebTrack(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.track_id = source["track_id"];
+	        this.track_type = source["track_type"];
+	        this.track_type_tag = source["track_type_tag"];
+	        this.formats = this.convertValues(source["formats"], MediaWebFormat);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MediaWeb {
+	    media_alias_id: string;
+	    // Go type: time
+	    last_modify: any;
+	    version_id: number;
+	    tracks: MediaWebTrack[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaWeb(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.media_alias_id = source["media_alias_id"];
+	        this.last_modify = this.convertValues(source["last_modify"], null);
+	        this.version_id = source["version_id"];
+	        this.tracks = this.convertValues(source["tracks"], MediaWebTrack);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class NavbarChild {
 	    name: string;
 	    count: number;
@@ -5231,6 +5354,87 @@ export namespace services {
 		    return a;
 		}
 	}
+	export class OfficialOrderRecord {
+	    record_id: string;
+	    title: string;
+	    intro: string;
+	    cover: string;
+	    author: string;
+	    product_kind: string;
+	    kind_label: string;
+	    product_type: number;
+	    product_id: string;
+	    learn_target_id: string;
+	    price_text: string;
+	    progress: number;
+	    progress_text: string;
+	    official_url: string;
+	    source_label: string;
+	    updated_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new OfficialOrderRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.record_id = source["record_id"];
+	        this.title = source["title"];
+	        this.intro = source["intro"];
+	        this.cover = source["cover"];
+	        this.author = source["author"];
+	        this.product_kind = source["product_kind"];
+	        this.kind_label = source["kind_label"];
+	        this.product_type = source["product_type"];
+	        this.product_id = source["product_id"];
+	        this.learn_target_id = source["learn_target_id"];
+	        this.price_text = source["price_text"];
+	        this.progress = source["progress"];
+	        this.progress_text = source["progress_text"];
+	        this.official_url = source["official_url"];
+	        this.source_label = source["source_label"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
+	export class OfficialOrderList {
+	    list: OfficialOrderRecord[];
+	    total: number;
+	    page: number;
+	    limit: number;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OfficialOrderList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.list = this.convertValues(source["list"], OfficialOrderRecord);
+	        this.total = source["total"];
+	        this.page = source["page"];
+	        this.limit = source["limit"];
+	        this.source = source["source"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class OutsideItemExtra {
 	    enid: string;

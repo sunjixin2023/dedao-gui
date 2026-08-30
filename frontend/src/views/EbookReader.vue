@@ -201,7 +201,7 @@ type ReaderNote = {
 }
 
 const route = useRoute()
-const { pushEbookList, pushByName } = useAppRouter()
+const { pushEbookList, pushByName, openExternalUrl } = useAppRouter()
 
 const loadingInfo = ref(false)
 const loadingPages = ref(false)
@@ -251,6 +251,7 @@ const getLastKey = (id: string) => `ebook_reader_last_chapter_${id}`
 const normalizeText = (text: string) => String(text || '').replace(/\s+/g, ' ').trim()
 const chapterTitleById = (id: string) => chapters.value.find((c) => c.chapterId === id)?.title || id
 const makeNoteId = () => `n_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+const officialKnowledgeUrl = 'https://www.dedao.cn/knowledge/home'
 const formatNoteTime = (ts: number) => {
   const d = new Date(ts)
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -653,6 +654,19 @@ const buildKnowledgeNoteContent = (note: ReaderNote) => {
   return lines.join('\n').trim()
 }
 
+const openOfficialKnowledgeWithContent = async (content: string) => {
+  const text = String(content || '').trim()
+  if (text) {
+    await copyText(text)
+  }
+  openExternalUrl(officialKnowledgeUrl)
+  ElMessage({
+    message: text ? '已复制内容并打开官方知识城邦，请粘贴后发布' : '已打开官方知识城邦',
+    type: 'info',
+    duration: 4200,
+  })
+}
+
 const publishNoteToKnowledge = async (note?: ReaderNote) => {
   const target = note || readerNotes.value[0]
   if (!target) {
@@ -674,6 +688,9 @@ const publishNoteToKnowledge = async (note?: ReaderNote) => {
   } catch (error) {
     const msg = String((error as any)?.message || error || '发布失败')
     ElMessage({ message: `发布失败：${msg}`, type: 'warning', duration: 4200 })
+    if (/code:104000|服务异常/.test(msg)) {
+      await openOfficialKnowledgeWithContent(content)
+    }
   } finally {
     publishingNoteId.value = ''
   }

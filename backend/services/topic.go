@@ -238,6 +238,7 @@ func (s *Service) TopicNotesTimeline(maxID string) (list *NotesTimeline, err err
 
 // TopicCreateNote 发布知识城邦笔记
 func (s *Service) TopicCreateNote(noteContent, topicIDHazy string) (resp *CreateNoteResp, err error) {
+	s.prepareWriteSession()
 	body, err := s.reqTopicCreateNote(noteContent, topicIDHazy)
 	if err != nil {
 		return

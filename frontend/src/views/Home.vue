@@ -14,6 +14,7 @@
           <el-button type="primary" round @click="goContinueLearning">
             {{ lStore.hasLastArticle ? "继续上次文稿" : "开始学习" }}
           </el-button>
+          <el-button round @click="goToAllContent">全部内容</el-button>
           <el-button round @click="goToCourseList">看课程</el-button>
           <el-button round @click="goToLiveList">看直播</el-button>
           <el-button round @click="goToAudioList">听音频</el-button>
@@ -552,6 +553,10 @@ const getUserInfo = async () => {
 
 const goToCourseList = () => {
   pushByName(ROUTE_NAMES.COURSE);
+};
+
+const goToAllContent = () => {
+  pushByName(ROUTE_NAMES.ALL_CONTENT);
 };
 
 const goToLiveList = () => {

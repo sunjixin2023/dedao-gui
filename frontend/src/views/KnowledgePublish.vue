@@ -8,6 +8,7 @@
         </div>
         <div class="header-right">
           <el-button text @click="fillFromClipboard">从剪贴板粘贴</el-button>
+          <el-button text @click="openOfficialPublish">官方发布</el-button>
           <el-button text @click="resetForm">清空</el-button>
           <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submitNote">
             发布
@@ -22,6 +23,14 @@
             <span class="counter" :class="{ warn: textLength > maxLength * 0.9 }">{{ textLength }} / {{ maxLength }}</span>
           </div>
         </template>
+
+        <div v-if="topicIdHazy || topicName" class="topic-preset">
+          <span class="topic-label">当前话题</span>
+          <el-tag effect="plain" type="success">
+            #{{ topicName || topicIdHazy }}
+          </el-tag>
+          <el-button link type="primary" @click="clearTopicPreset">清除话题</el-button>
+        </div>
 
         <el-input
           v-model="content"
@@ -62,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { KnowledgeCreateNote } from '../../wailsjs/go/backend/App'
@@ -70,16 +79,18 @@ import { useAppRouter } from '../composables/useRouter'
 import { ROUTE_NAMES } from '../router/routes'
 
 const route = useRoute()
-const { pushByName } = useAppRouter()
+const { pushByName, openExternalUrl } = useAppRouter()
 
 const content = ref('')
 const topicIdHazy = ref('')
+const topicName = ref('')
 const submitting = ref(false)
 const resultNoteId = ref('')
 const maxLength = 2000
 
 const textLength = computed(() => String(content.value || '').trim().length)
 const canSubmit = computed(() => textLength.value > 1 && textLength.value <= maxLength && !submitting.value)
+const officialPublishUrl = 'https://www.dedao.cn/knowledge/home'
 
 const backToKnowledge = () => {
   pushByName(ROUTE_NAMES.KNOWLEDGE)
@@ -88,8 +99,46 @@ const backToKnowledge = () => {
 const applyRoutePayload = () => {
   const qContent = String(route.query.content || '').trim()
   const qTopic = String(route.query.topicIdHazy || '').trim()
+  const qTopicName = String(route.query.topicName || '').trim()
   if (qContent) content.value = qContent
-  if (qTopic) topicIdHazy.value = qTopic
+  topicIdHazy.value = qTopic
+  topicName.value = qTopicName
+}
+
+const clearTopicPreset = () => {
+  topicIdHazy.value = ''
+  topicName.value = ''
+}
+
+const copyText = async (text: string) => {
+  const value = String(text || '').trim()
+  if (!value) return
+  try {
+    await navigator.clipboard.writeText(value)
+    return
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = value
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+}
+
+const openOfficialPublish = async () => {
+  const text = String(content.value || '').trim()
+  if (text) {
+    await copyText(text)
+  }
+  openExternalUrl(officialPublishUrl)
+  ElMessage({
+    type: 'info',
+    message: text ? '已复制内容并打开官方知识城邦，请粘贴后发布' : '已打开官方知识城邦',
+    duration: 4200,
+  })
 }
 
 const fillFromClipboard = async () => {
@@ -110,6 +159,7 @@ const fillFromClipboard = async () => {
 const resetForm = () => {
   content.value = ''
   topicIdHazy.value = ''
+  topicName.value = ''
   resultNoteId.value = ''
 }
 
@@ -133,12 +183,19 @@ const submitNote = async () => {
   } catch (error) {
     const msg = String((error as any)?.message || error || '发布失败')
     ElMessage({ type: 'warning', message: `发布失败：${msg}`, duration: 4200 })
+    if (/code:104000|服务异常/.test(msg)) {
+      await openOfficialPublish()
+    }
   } finally {
     submitting.value = false
   }
 }
 
 onMounted(() => {
+  applyRoutePayload()
+})
+
+watch(() => route.query, () => {
   applyRoutePayload()
 })
 </script>
@@ -202,6 +259,18 @@ onMounted(() => {
 
 .counter.warn {
   color: var(--el-color-warning);
+}
+
+.topic-preset {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topic-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .extra-row {

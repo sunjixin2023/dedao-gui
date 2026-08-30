@@ -185,6 +185,11 @@ type LiveItem = {
   pv_num: number
   playback_status: number
   live_duration_text: string
+  live_cover_m3u8?: string
+  video_cover_m3u8?: string
+  web_pc_media_token?: string
+  ld_flv?: string
+  hd_flv?: string
 }
 
 type LiveTabListResp = {
@@ -220,6 +225,11 @@ type LiveCheckResp = {
 type LiveRoomPlaybackInfoResp = {
   web_pc_media_token?: string
   token?: string
+  hd?: string
+  ld?: string
+  ud?: string
+  audio?: string
+  screen_projection_url?: string
 }
 
 type LiveRoomDetailResp = {
@@ -411,6 +421,11 @@ const pickStreamUrl = (room: LiveRoomDetailResp | null) => {
     room?.L1flv,
     room?.L2flv,
     room?.L3flv,
+    room?.playback_info?.ud,
+    room?.playback_info?.hd,
+    room?.playback_info?.ld,
+    room?.playback_info?.audio,
+    room?.playback_info?.screen_projection_url,
   ]
   for (const url of candidates) {
     const normalized = normalizeUrl(String(url || ''))
@@ -419,8 +434,28 @@ const pickStreamUrl = (room: LiveRoomDetailResp | null) => {
   return ''
 }
 
-const pickPlayAuthToken = (room: LiveRoomDetailResp | null) => {
-  const token = String(room?.playback_info?.web_pc_media_token || room?.playback_info?.token || room?.web_pc_media_token || '').trim()
+const pickFallbackStreamFromItem = (item: LiveItem | null) => {
+  const candidates = [
+    item?.live_cover_m3u8,
+    item?.video_cover_m3u8,
+    item?.hd_flv,
+    item?.ld_flv,
+  ]
+  for (const url of candidates) {
+    const normalized = normalizeUrl(String(url || ''))
+    if (normalized) return normalized
+  }
+  return ''
+}
+
+const pickPlayAuthToken = (room: LiveRoomDetailResp | null, item: LiveItem | null) => {
+  const token = String(
+    room?.playback_info?.web_pc_media_token
+      || room?.playback_info?.token
+      || room?.web_pc_media_token
+      || item?.web_pc_media_token
+      || '',
+  ).trim()
   return token
 }
 
@@ -441,8 +476,8 @@ const openLiveInApp = async (item: LiveItem | null) => {
 
     const token = String(check?.token || '').trim()
     const room = await invokeBackend<LiveRoomDetailResp>('LiveRoomDetail', aliasId, '', token).catch(() => null)
-    const streamUrl = pickStreamUrl(room)
-    const playAuthToken = pickPlayAuthToken(room)
+    const streamUrl = pickStreamUrl(room) || pickFallbackStreamFromItem(item)
+    const playAuthToken = pickPlayAuthToken(room, item)
 
     if (streamUrl) {
       pushVideo({
@@ -583,10 +618,11 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .view-toggle {
-  height: 36px;
+  height: 40px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
   background: color-mix(in srgb, var(--card-bg) 90%, transparent);
@@ -596,13 +632,16 @@ onMounted(async () => {
 }
 
 .toggle-btn {
-  height: 30px;
+  height: 34px;
+  min-width: 74px;
   border: 0;
   border-radius: 999px;
-  padding: 0 12px;
+  padding: 0 16px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -642,17 +681,24 @@ onMounted(async () => {
 .live-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+  margin-top: -2px;
+  padding: 0 20px;
+  box-sizing: border-box;
+  align-items: center;
 }
 
 .live-tab {
-  height: 36px;
+  height: 44px;
+  min-width: 132px;
+  justify-content: center;
+  box-sizing: border-box;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--live-accent) 28%, transparent);
   background: color-mix(in srgb, var(--live-soft-bg) 78%, transparent);
   color: var(--text-primary);
-  padding: 0 12px;
-  font-size: 13px;
+  padding: 0 16px;
+  font-size: 14px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -661,10 +707,26 @@ onMounted(async () => {
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
+.live-tab span {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
 .live-tab em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
+  background: color-mix(in srgb, var(--fill-color-light) 86%, transparent);
 }
 
 .live-tab.active {
@@ -673,8 +735,17 @@ onMounted(async () => {
   background: linear-gradient(120deg, color-mix(in srgb, var(--live-accent) 82%, #fff 18%) 0%, var(--live-accent-strong) 100%);
 }
 
+.live-tab.active em {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .live-grid-wrapper {
   border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 82%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 90%, transparent);
+  padding: 12px;
+  min-height: 240px;
 }
 
 .live-grid {
@@ -847,13 +918,19 @@ onMounted(async () => {
 .empty-state {
   border: 1px dashed color-mix(in srgb, var(--border-soft) 82%, transparent);
   border-radius: 14px;
-  min-height: 320px;
+  min-height: 190px;
+  max-width: 620px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: var(--text-secondary);
+  background: color-mix(in srgb, var(--fill-color-light) 72%, transparent);
+  padding: 20px 16px;
 }
 
 .empty-icon {
@@ -869,10 +946,11 @@ onMounted(async () => {
 
 .empty-state p {
   margin: 0;
+  color: var(--text-tertiary);
 }
 
 .load-more {
-  margin-top: 12px;
+  margin-top: 16px;
   display: flex;
   justify-content: center;
 }
@@ -970,6 +1048,10 @@ onMounted(async () => {
   .view-toggle {
     width: 100%;
     justify-content: center;
+  }
+
+  .live-tabs {
+    padding: 0;
   }
 
   .live-grid.list-mode .live-card {

@@ -185,11 +185,45 @@ const pickVideoMedia = (list: any[] | undefined) => {
     return list.find((m) => Number(m?.media_type) === 2) ?? list[0]
 }
 
+const normalizeStreamUrl = (raw: unknown) => {
+    const value = String(raw ?? '').trim()
+    if (!value) return ''
+    if (value.startsWith('http://') || value.startsWith('https://')) return value
+    if (value.startsWith('//')) return `https:${value}`
+    return ''
+}
+
+const pickVideoStreamUrl = (video: any | null | undefined) => {
+    const candidates = [
+        video?.bitrate_1080,
+        video?.bitrate_720,
+        video?.bitrate_480,
+        video?.bitrate_1080_audio,
+        video?.bitrate_720_audio,
+        video?.bitrate_480_audio,
+    ]
+    for (const candidate of candidates) {
+        const url = normalizeStreamUrl(candidate)
+        if (url) return url
+    }
+    return ''
+}
+
 const currentVideoMedia = computed(() => pickVideoMedia(articleIntro.value?.media_base_info))
+const currentVideoInfo = computed(() => {
+    const list = articleIntro.value?.video
+    if (Array.isArray(list) && list.length > 0) return list[0]
+    return null
+})
 const hasVideo = computed(() => {
     const media = currentVideoMedia.value
-    if (!media) return false
-    return Boolean(String(media?.source_id ?? '').trim() && String(media?.security_token ?? '').trim())
+    const streamUrl = pickVideoStreamUrl(currentVideoInfo.value)
+    if (streamUrl) return true
+
+    const mediaId = String(media?.source_id ?? '').trim()
+    const securityToken = String(media?.security_token ?? '').trim()
+    const playAuthToken = String(currentVideoInfo.value?.token ?? '').trim()
+    return Boolean((mediaId && securityToken) || playAuthToken)
 })
 
 const normalizeHeadingText = (text: string) => {
@@ -436,7 +470,11 @@ const startVideoLearning = () => {
     const media = currentVideoMedia.value
     const mediaId = String(media?.source_id ?? '').trim()
     const securityToken = String(media?.security_token ?? '').trim()
-    if (!mediaId || !securityToken) {
+    const videoInfo = currentVideoInfo.value
+    const directStreamUrl = pickVideoStreamUrl(videoInfo)
+    const playAuthToken = String(videoInfo?.token ?? '').trim()
+
+    if (!directStreamUrl && !playAuthToken && (!mediaId || !securityToken)) {
         ElMessage({ message: '当前文稿未找到可播放的视频', type: 'warning' })
         return
     }
@@ -445,6 +483,8 @@ const startVideoLearning = () => {
         from: from.value || 'course',
         media_id: mediaId,
         security_token: securityToken,
+        stream_url: directStreamUrl,
+        play_auth_token: playAuthToken,
         title: articleTitle.value,
         parentTitle: breadcrumbItem1.value,
     })

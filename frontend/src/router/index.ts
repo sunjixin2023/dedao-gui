@@ -43,10 +43,57 @@ const router = createRouter({
             ],
         },
         {
+            path: "/store",
+            meta: { name: "商店", icon:"ShoppingBag", menuType: 3 },
+            redirect: '/store/home',
+            children: [
+                {
+                    path: 'home',
+                    name: "storeHome",
+                    component: () => import("../views/StoreHome.vue"),
+                    meta: {
+                        name: "内容商店", requiresAuth:false
+                    },
+                },
+                {
+                    path: 'orders',
+                    name: "storeOrders",
+                    component: () => import("../views/OrderList.vue"),
+                    meta: {
+                        name: "订单中心", requiresAuth:false
+                    },
+                },
+                {
+                    path: 'membership',
+                    name: "storeMembership",
+                    component: () => import("../views/MembershipCenter.vue"),
+                    meta: {
+                        name: "会员中心", requiresAuth:false
+                    },
+                },
+                {
+                    path: 'detail/:type/:id',
+                    name: "storeDetail",
+                    component: () => import("../views/ProductDetail.vue"),
+                    meta: {
+                        name: "商品详情", hideMenu:true, requiresAuth:false
+                    },
+                },
+            ],
+        },
+        {
             path: "/bought",
             meta: { name: "我的学习", icon:"Collection", menuType: 3 },
-            redirect: '/bought/course',
+            redirect: '/bought/all',
             children: [
+                {
+                    path: 'all',
+                    name: "allContent",
+                    component: () => import("../views/AllContent.vue"),
+                    meta: {
+                        name: "全部内容", requiresAuth:true
+                    },
+                },
                 {
                     path: 'course',
                     name: "course",

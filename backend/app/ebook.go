@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -52,6 +53,88 @@ func EbookSyncedNotes(enID string) (list *services.EbookNoteListResp, err error)
 	return
 }
 
+func normalizeChapterID(chapterID string) string {
+	ch := strings.TrimSpace(chapterID)
+	if idx := strings.Index(ch, "#"); idx >= 0 {
+		ch = ch[:idx]
+	}
+	return strings.TrimSpace(ch)
+}
+
+func resolveChapterOffsets(info *services.EbookInfo, chapterID string) (startPos, endPos int) {
+	if info == nil {
+		return 0, 0
+	}
+	target := normalizeChapterID(chapterID)
+	if target == "" {
+		return 0, 0
+	}
+
+	found := false
+	minStart, maxEnd := 0, 0
+	for _, page := range info.BookInfo.Pages {
+		if normalizeChapterID(page.Cid) != target {
+			continue
+		}
+		if !found || (page.StartOffset > 0 && page.StartOffset < minStart) || minStart == 0 {
+			minStart = page.StartOffset
+		}
+		if page.EndOffset > maxEnd {
+			maxEnd = page.EndOffset
+		}
+		found = true
+	}
+	if !found {
+		return 0, 0
+	}
+	return minStart, maxEnd
+}
+
+func findSyncedNoteByHazy(list *services.EbookNoteListResp, noteIDHazy string) *services.EbookNoteItem {
+	if list == nil {
+		return nil
+	}
+	target := strings.TrimSpace(noteIDHazy)
+	if target == "" {
+		return nil
+	}
+	for i := range list.List {
+		if strings.TrimSpace(list.List[i].NoteIDHazy) == target {
+			return &list.List[i]
+		}
+	}
+	return nil
+}
+
+func refIDToString(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case int:
+		return strconv.Itoa(t)
+	case int32:
+		return strconv.FormatInt(int64(t), 10)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case uint:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint64:
+		return strconv.FormatUint(t, 10)
+	case float32:
+		return strconv.FormatInt(int64(t), 10)
+	case float64:
+		return strconv.FormatInt(int64(t), 10)
+	default:
+		value := strings.TrimSpace(fmt.Sprint(v))
+		if value == "" || value == "<nil>" {
+			return ""
+		}
+		return value
+	}
+}
+
 // EbookSyncSave 创建/更新官方电子书笔记
 func EbookSyncSave(enID, chapterID, noteLine, note, noteIDHazy string) (resp *services.EbookNoteSaveResp, err error) {
 	detail, err := getService().EbookDetail(enID)
@@ -62,25 +145,86 @@ func EbookSyncSave(enID, chapterID, noteLine, note, noteIDHazy string) (resp *se
 	if detail != nil {
 		bookID = detail.ID
 	}
+	chapterKey := normalizeChapterID(chapterID)
+	if chapterKey == "" {
+		return nil, fmt.Errorf("chapterID is required")
+	}
+
+	bookStartPos, bookOffset := 1, 2
+	if info, infoErr := EbookReadInfo(enID); infoErr == nil {
+		if startPos, endPos := resolveChapterOffsets(info, chapterKey); startPos > 0 {
+			bookStartPos = startPos
+			if endPos > startPos {
+				bookOffset = endPos
+			} else {
+				bookOffset = startPos + 1
+			}
+		}
+	}
 
 	req := &services.EbookNoteWriteReq{
 		BookEnid:         enID,
 		BookID:           bookID,
 		BookIsOldVersion: 0,
-		BookOffset:       0,
-		BookSection:      chapterID,
-		BookStartPos:     0,
-		Location:         chapterID,
+		BookOffset:       bookOffset,
+		BookSection:      chapterKey,
+		BookStartPos:     bookStartPos,
+		Location:         "",
 		Note:             note,
 		NoteLine:         noteLine,
 		NoteType:         4,
-		RefID:            chapterID,
+		RefID:            "0",
 		State:            5,
-		Tags:             []string{},
 		NoteIDHazy:       noteIDHazy,
 	}
 
 	if noteIDHazy != "" {
+		if synced, listErr := getService().EbookNoteList(enID, bookID, 0); listErr == nil {
+			if current := findSyncedNoteByHazy(synced, noteIDHazy); current != nil {
+				if current.NoteID > 0 {
+					req.NoteID = current.NoteID
+				}
+				if current.NoteType > 0 {
+					req.NoteType = current.NoteType
+				}
+				if current.State > 0 {
+					req.State = current.State
+				}
+				if section := normalizeChapterID(current.Extra.BookSection); section != "" {
+					req.BookSection = section
+				}
+				if current.Extra.BookStartPos > 0 {
+					req.BookStartPos = current.Extra.BookStartPos
+				}
+				if current.Extra.BookOffset > 0 {
+					req.BookOffset = current.Extra.BookOffset
+				}
+				if location := normalizeChapterID(current.Extra.Location); location != "" {
+					req.Location = location
+				}
+				if refID := refIDToString(current.RefID); refID != "" {
+					req.RefID = refID
+				}
+				if current.Extra.BookId > 0 {
+					req.BookID = current.Extra.BookId
+				}
+				if current.Extra.BookIsOldVersion != 0 {
+					req.BookIsOldVersion = current.Extra.BookIsOldVersion
+				}
+			}
+		}
+		if req.BookStartPos <= 0 {
+			req.BookStartPos = 1
+		}
+		if req.BookOffset <= req.BookStartPos {
+			req.BookOffset = req.BookStartPos + 1
+		}
+		if req.BookSection == "" {
+			req.BookSection = chapterKey
+		}
+		if req.RefID == "" {
+			req.RefID = "0"
+		}
 		resp, err = getService().EbookNoteUpdate(req)
 	} else {
 		resp, err = getService().EbookNoteCreate(req)

@@ -8,7 +8,11 @@
                 <notes-item :topic-detail="topicDetail" :key="timer()"/>
             </div>
             <div class="sidebar-area">
-                <topic-item :topic-detail="topicDetail" @send-detail="getTopicDetail"/>
+                <topic-item
+                  :topic-detail="topicDetail"
+                  @send-detail="getTopicDetail"
+                  @publish-topic="goPublishWithTopic"
+                />
             </div>
         </div>
     </div>
@@ -20,10 +24,9 @@ import TopicItem from "../components/TopicItem.vue";
 import {reactive} from "vue";
 import {services} from "../../wailsjs/go/models";
 import { useAppRouter } from "../composables/useRouter";
-import { ROUTE_NAMES } from "../router/routes";
 
 const topicDetail = reactive(new services.TopicIntro)
-const { pushByName } = useAppRouter()
+const { pushKnowledgePublish } = useAppRouter()
 
 const getTopicDetail = (row:any)=> {
     Object.assign(topicDetail, row)
@@ -31,7 +34,29 @@ const getTopicDetail = (row:any)=> {
 }
 
 const goPublish = () => {
-    pushByName(ROUTE_NAMES.KNOWLEDGE_PUBLISH)
+    const selectedTopic = String(topicDetail.topic_id_hazy || topicDetail.notes_topic_id || '').trim()
+    const selectedName = String(topicDetail.name || '').trim()
+    if (selectedTopic) {
+        pushKnowledgePublish({
+            topicIdHazy: selectedTopic,
+            topicName: selectedName,
+        })
+        return
+    }
+    pushKnowledgePublish()
+}
+
+const goPublishWithTopic = (row: any) => {
+    const topicId = String(row?.topic_id_hazy || row?.notes_topic_id || '').trim()
+    const topicName = String(row?.name || '').trim()
+    if (!topicId) {
+        pushKnowledgePublish()
+        return
+    }
+    pushKnowledgePublish({
+        topicIdHazy: topicId,
+        topicName,
+    })
 }
 
 const timer = ()=> {

@@ -149,10 +149,18 @@ func NewService(co *CookieOptions) *Service {
 	client.SetBaseURL(baseURL).
 		SetCookies(cookies).
 		SetHeaderVerbatim("User-Agent", UserAgent).
-		SetHeaderVerbatim("Xi-DT", "web")
+		SetHeaderVerbatim("Xi-DT", "web").
+		SetHeaderVerbatim("X-Requested-With", "XMLHttpRequest")
 
 	if co.CsrfToken != "" {
 		client.SetHeaderVerbatim("Xi-Csrf-Token", co.CsrfToken)
+		if co.Token == "" {
+			client.SetCookie(&http.Cookie{
+				Name:   "token",
+				Value:  co.CsrfToken,
+				Domain: "www." + dedaoCommURL.Host,
+			})
+		}
 	}
 	return &Service{client: client}
 }
@@ -196,7 +204,7 @@ func handleJSONParse(reader io.Reader, v interface{}) error {
 	// fmt.Printf("result.C:=%#v", result.C)
 	if !result.isSuccess() {
 		// 未登录或者登录凭证无效
-		err = errors.New("服务异常，请稍后重试。errMsg:" + result.H.E)
+		err = fmt.Errorf("服务异常，请稍后重试。code:%d errMsg:%s", result.H.C, result.H.E)
 		return err
 	}
 	err = utils.UnmarshalJSON(result.C, v)
@@ -268,4 +276,73 @@ func ParseCookies(cookie string, v interface{}) (err error) {
 	}
 
 	return nil
+}
+
+func parseSetCookieKV(setCookies []string) map[string]string {
+	out := make(map[string]string, len(setCookies))
+	for _, raw := range setCookies {
+		item := strings.TrimSpace(raw)
+		if item == "" {
+			continue
+		}
+		first := strings.SplitN(item, ";", 2)[0]
+		kv := strings.SplitN(strings.TrimSpace(first), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+		if name == "" || value == "" {
+			continue
+		}
+		out[name] = value
+	}
+	return out
+}
+
+func cookieDomainByName(name string) string {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "gat", "isid":
+		return "." + dedaoCommURL.Host
+	default:
+		return "www." + dedaoCommURL.Host
+	}
+}
+
+func (s *Service) syncSessionCookies(setCookies []string) (csrf string) {
+	values := parseSetCookieKV(setCookies)
+	if len(values) == 0 {
+		return ""
+	}
+
+	if token := strings.TrimSpace(values["token"]); token == "" {
+		if c := strings.TrimSpace(values["csrfToken"]); c != "" {
+			values["token"] = c
+		}
+	}
+
+	for name, value := range values {
+		s.client.SetCookie(&http.Cookie{
+			Name:   name,
+			Value:  value,
+			Domain: cookieDomainByName(name),
+		})
+	}
+
+	if c := strings.TrimSpace(values["csrfToken"]); c != "" {
+		s.client.SetHeaderVerbatim("Xi-Csrf-Token", c)
+		return c
+	}
+	return ""
+}
+
+func (s *Service) prepareWriteSession() {
+	_, err := s.GetHomeInitialState()
+	if err != nil {
+		return
+	}
+	if len(SetCookie) == 0 {
+		return
+	}
+	_ = s.syncSessionCookies(SetCookie)
 }

@@ -1,6 +1,9 @@
 package backend
 
 import (
+	"net/url"
+	"strings"
+
 	jsoniter "github.com/json-iterator/go"
 	"github.com/yann0917/dedao-gui/backend/app"
 	"github.com/yann0917/dedao-gui/backend/services"
@@ -98,4 +101,240 @@ func (a *App) GetVolcPlayInfo(query string) (info *services.VodPlayInfoResp, err
 		return
 	}
 	return
+}
+
+func (a *App) GetMediaGateWebPlayInfo(mediaID, mediaAliasID, securityToken string) (info *services.MediaWeb, err error) {
+	info, err = Instance.GetMediaGateWebPlayInfo(mediaID, mediaAliasID, securityToken)
+	if err != nil {
+		return
+	}
+	return
+}
+
+type VideoPlaybackResolve struct {
+	PlayAuthToken string `json:"play_auth_token"`
+	StreamURL     string `json:"stream_url"`
+	Vid           string `json:"vid"`
+	KeyToken      string `json:"key_token"`
+}
+
+func (a *App) ResolveVideoPlayback(mediaID, securityToken string) (info *VideoPlaybackResolve, err error) {
+	info = &VideoPlaybackResolve{}
+	var firstErr error
+
+	// Prefer official web media-gate playback url first. This path is often
+	// stable even when volc auth-token API has transient network failures.
+	streamURL, webErr := tryPickMediaGateWebURL(mediaID, "", securityToken, 2)
+	if streamURL != "" {
+		info.StreamURL = streamURL
+	} else if webErr != nil {
+		firstErr = webErr
+	}
+
+	volc, volcErr := tryGetVolcPlayAuthToken(mediaID, securityToken, 2)
+	if volcErr != nil {
+		if firstErr == nil {
+			firstErr = volcErr
+		}
+		if info.StreamURL != "" {
+			return
+		}
+		err = firstErr
+		return
+	}
+	if volc == nil {
+		if info.StreamURL != "" {
+			return
+		}
+		err = firstErr
+		return
+	}
+
+	for _, track := range volc.Tracks {
+		for _, format := range track.Formats {
+			vid := strings.TrimSpace(format.VolcId)
+			playAuth := strings.TrimSpace(format.VolcPlayAuthToken)
+			keyToken := strings.TrimSpace(format.VolcKeyToken)
+			if vid == "" || playAuth == "" {
+				continue
+			}
+
+			if info.PlayAuthToken == "" {
+				info.PlayAuthToken = playAuth
+			}
+			if info.Vid == "" {
+				info.Vid = vid
+			}
+			if info.KeyToken == "" {
+				info.KeyToken = keyToken
+			}
+		}
+	}
+
+	// Retry media-gate web url with alias if the first attempt did not return
+	// a direct stream URL.
+	if info.StreamURL == "" {
+		streamURL, _ = tryPickMediaGateWebURL(mediaID, strings.TrimSpace(volc.MediaAliasId), securityToken, 2)
+		if streamURL != "" {
+			info.StreamURL = streamURL
+			return
+		}
+	}
+
+	for _, track := range volc.Tracks {
+		for _, format := range track.Formats {
+			vid := strings.TrimSpace(format.VolcId)
+			playAuth := strings.TrimSpace(format.VolcPlayAuthToken)
+			keyToken := strings.TrimSpace(format.VolcKeyToken)
+			if vid == "" || playAuth == "" {
+				continue
+			}
+
+			for _, query := range buildVolcPlayInfoQueries(vid, playAuth, keyToken) {
+				playInfo, playErr := Instance.GetVolcPlayInfo(query)
+				if playErr != nil || playInfo == nil {
+					continue
+				}
+				if streamURL := pickVolcPlayableURL(playInfo); streamURL != "" {
+					info.StreamURL = streamURL
+					return
+				}
+			}
+		}
+	}
+
+	if info.StreamURL == "" && info.PlayAuthToken == "" {
+		err = firstErr
+	}
+	return
+}
+
+func tryGetVolcPlayAuthToken(mediaID, securityToken string, attempts int) (info *services.MediaVolc, err error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+	for i := 0; i < attempts; i++ {
+		info, err = Instance.GetVolcPlayAuthToken(mediaID, securityToken)
+		if err == nil {
+			return
+		}
+	}
+	return
+}
+
+func tryPickMediaGateWebURL(mediaID, mediaAliasID, securityToken string, attempts int) (streamURL string, err error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+	for i := 0; i < attempts; i++ {
+		var info *services.MediaWeb
+		info, err = Instance.GetMediaGateWebPlayInfo(mediaID, mediaAliasID, securityToken)
+		if err != nil {
+			continue
+		}
+		streamURL = pickMediaGateWebURL(info)
+		if streamURL != "" {
+			return
+		}
+	}
+	return
+}
+
+func buildVolcPlayInfoQueries(vid, playAuth, keyToken string) []string {
+	queries := make([]string, 0, 4)
+	appendQuery := func(includeKey bool, extra bool) {
+		values := url.Values{}
+		values.Set("Vid", strings.TrimSpace(vid))
+		values.Set("PlayAuthToken", strings.TrimSpace(playAuth))
+		values.Set("Ssl", "1")
+		if extra {
+			values.Set("NeedHttps", "1")
+			values.Set("NeedOriginal", "1")
+		}
+		if includeKey {
+			kt := strings.TrimSpace(keyToken)
+			if kt != "" {
+				values.Set("KeyToken", kt)
+			}
+		}
+		queries = append(queries, values.Encode())
+	}
+
+	appendQuery(false, true)
+	appendQuery(true, true)
+	appendQuery(false, false)
+	appendQuery(true, false)
+	return queries
+}
+
+func pickVolcPlayableURL(info *services.VodPlayInfoResp) string {
+	if info == nil {
+		return ""
+	}
+	main := strings.TrimSpace(info.Result.AdaptiveInfo.MainPlayUrl)
+	backup := strings.TrimSpace(info.Result.AdaptiveInfo.BackupPlayUrl)
+	if main != "" {
+		return main
+	}
+	if backup != "" {
+		return backup
+	}
+	for _, p := range info.Result.PlayInfoList {
+		if u := strings.TrimSpace(p.MainPlayUrl); u != "" {
+			return u
+		}
+		if u := strings.TrimSpace(p.BackupPlayUrl); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+func pickMediaGateWebURL(info *services.MediaWeb) string {
+	if info == nil {
+		return ""
+	}
+
+	var bestNoDrm string
+	var bestM3U8 string
+	var bestMP4 string
+	var bestAny string
+
+	for _, track := range info.Tracks {
+		for _, format := range track.Formats {
+			url := strings.TrimSpace(format.URL)
+			if url == "" {
+				continue
+			}
+			lower := strings.ToLower(url)
+			isDrm := format.DrmVersion > 0 || strings.Contains(lower, "/drm/") || strings.Contains(lower, "drm=")
+
+			if !isDrm && strings.Contains(lower, ".mp4") {
+				return url
+			}
+			if !isDrm && bestNoDrm == "" {
+				bestNoDrm = url
+			}
+			if strings.Contains(lower, ".m3u8") && bestM3U8 == "" {
+				bestM3U8 = url
+			}
+			if strings.Contains(lower, ".mp4") && bestMP4 == "" {
+				bestMP4 = url
+			}
+			if bestAny == "" {
+				bestAny = url
+			}
+		}
+	}
+
+	if bestNoDrm != "" {
+		return bestNoDrm
+	}
+	if bestM3U8 != "" {
+		return bestM3U8
+	}
+	if bestMP4 != "" {
+		return bestMP4
+	}
+	return bestAny
 }

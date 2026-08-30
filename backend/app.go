@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/yann0917/dedao-gui/backend/utils"
 )
 
@@ -43,6 +44,13 @@ func (a *App) DomReady(ctx context.Context) {
 
 func (a *App) OnSecondInstanceLaunch(secondInstanceData options.SecondInstanceData) {
 	fmt.Println("OnSecondInstanceLaunch", secondInstanceData)
+	if a.Ctx == nil {
+		return
+	}
+	runtime.WindowShow(a.Ctx)
+	runtime.WindowUnminimise(a.Ctx)
+	runtime.WindowSetAlwaysOnTop(a.Ctx, true)
+	runtime.WindowSetAlwaysOnTop(a.Ctx, false)
 }
 
 func setupCleanupOnExit() {

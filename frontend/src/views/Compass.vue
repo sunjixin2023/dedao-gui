@@ -1,9 +1,31 @@
 <template>
   <div class="compass-container">
+    <section class="compass-hero">
+      <div class="hero-main">
+        <p class="hero-kicker">Compass</p>
+        <h1 class="hero-title">锦囊精选</h1>
+        <p class="hero-subtitle">聚合实用问题与建议，支持快速筛选与一键下载。</p>
+      </div>
+      <div class="hero-stats">
+        <article class="stat-card">
+          <span>内容总量</span>
+          <strong>{{ total }}</strong>
+        </article>
+        <article class="stat-card">
+          <span>当前页</span>
+          <strong>{{ page }}</strong>
+        </article>
+        <article class="stat-card">
+          <span>每页数量</span>
+          <strong>{{ pageSize }}</strong>
+        </article>
+      </div>
+    </section>
+
     <div class="compass-grid" v-loading="loading">
       <div v-for="item in tableData.list" :key="item.id" class="compass-card">
         <div class="card-inner">
-          <div class="card-cover">
+          <div class="card-cover" v-if="item.icon">
             <el-image :src="item.icon" loading="lazy" fit="cover">
               <template #placeholder>
                 <div class="image-placeholder">
@@ -11,11 +33,9 @@
                 </div>
               </template>
             </el-image>
-            <div class="card-overlay">
-              <el-button type="primary" circle @click="openDownloadDialog(item)">
-                <el-icon><DownloadIcon /></el-icon>
-              </el-button>
-            </div>
+            <button class="download-fab" @click.stop="openDownloadDialog(item)">
+              <el-icon><DownloadIcon /></el-icon>
+            </button>
           </div>
           <div class="card-info">
             <h3 class="card-title" :title="item.title">{{ item.title }}</h3>
@@ -24,9 +44,18 @@
                 <el-icon><User /></el-icon>
                 {{ item.ext_info[0].replier_name }}
               </span>
+              <span class="replier" v-else>
+                <el-icon><User /></el-icon>
+                匿名用户
+              </span>
             </div>
             <div class="card-intro" v-if="item.intro">
               <p>{{ item.intro }}</p>
+            </div>
+            <div class="card-actions">
+              <el-button type="primary" plain size="small" @click.stop="openDownloadDialog(item)">
+                下载
+              </el-button>
             </div>
           </div>
         </div>
@@ -175,21 +204,83 @@ const download = async (id: number, dType: number) => {
   
 <style scoped>
 .compass-container {
-  height: calc(100vh - 20px);
+  min-height: calc(100vh - 60px);
   display: flex;
   flex-direction: column;
+  gap: 14px;
   background-color: var(--fill-color-light);
-  padding: 20px;
+  padding: 14px;
   box-sizing: border-box;
+}
+
+.compass-hero {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  background:
+    radial-gradient(320px 180px at 14% 0%, color-mix(in srgb, var(--primary-color) 16%, transparent) 0%, transparent 72%),
+    color-mix(in srgb, var(--card-bg) 92%, transparent);
+}
+
+.hero-kicker {
+  margin: 0;
+  color: var(--accent-color);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.hero-title {
+  margin: 8px 0 0;
+  font-size: 28px;
+  color: var(--text-primary);
+  font-family: var(--font-family-display);
+}
+
+.hero-subtitle {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-content: start;
+}
+
+.stat-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--fill-color-light) 76%, transparent);
+}
+
+.stat-card span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  color: var(--text-primary);
 }
 
 .compass-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
   overflow-y: auto;
-  padding: 4px;
+  padding: 2px;
   align-content: start;
   
   /* 隐藏滚动条但保留功能 - 清新风格 */
@@ -203,9 +294,9 @@ const download = async (id: number, dType: number) => {
 
 .compass-card {
   background: var(--card-bg);
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow: var(--shadow-soft);
-  transition: all 0.3s ease;
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
   overflow: hidden;
   height: 100%;
   display: flex;
@@ -214,9 +305,9 @@ const download = async (id: number, dType: number) => {
 }
 
 .compass-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-medium);
-  border-color: var(--primary-color-light);
+  border-color: color-mix(in srgb, var(--primary-color) 32%, transparent);
 }
 
 .card-inner {
@@ -227,7 +318,7 @@ const download = async (id: number, dType: number) => {
 
 .card-cover {
   position: relative;
-  height: 160px;
+  height: 180px;
   background: var(--fill-color);
   overflow: hidden;
 }
@@ -235,11 +326,11 @@ const download = async (id: number, dType: number) => {
 .card-cover .el-image {
   width: 100%;
   height: 100%;
-  transition: transform 0.5s ease;
+  transition: transform 0.4s ease;
 }
 
 .compass-card:hover .card-cover .el-image {
-  transform: scale(1.05);
+  transform: scale(1.03);
 }
 
 .image-placeholder {
@@ -251,27 +342,31 @@ const download = async (id: number, dType: number) => {
   font-size: 24px;
 }
 
-.card-overlay {
+.download-fab {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.4);
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(229, 81, 0, 0.92);
+  color: #fff;
   display: flex;
   justify-content: center;
   align-items: center;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  backdrop-filter: blur(2px);
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+  backdrop-filter: blur(4px);
 }
 
-.compass-card:hover .card-overlay {
-  opacity: 1;
+.download-fab:hover {
+  transform: translateY(-1px);
+  background: #d94800;
 }
 
 .card-info {
-  padding: 16px;
+  padding: 14px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -279,22 +374,23 @@ const download = async (id: number, dType: number) => {
 }
 
 .card-title {
-  font-size: 16px;
+  font-size: 24px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 64px;
 }
 
 .card-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
@@ -309,20 +405,66 @@ const download = async (id: number, dType: number) => {
   font-size: 13px;
   color: var(--text-tertiary);
   line-height: 1.5;
+}
+
+.card-intro p {
+  margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
+.card-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .pagination-container {
-  margin-top: 20px;
   display: flex;
   justify-content: center;
   background: var(--card-bg);
   padding: 12px;
   border-radius: 8px;
   box-shadow: var(--shadow-soft);
+}
+
+@media (max-width: 1180px) {
+  .compass-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .compass-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .compass-container {
+    padding: 10px;
+  }
+
+  .hero-title {
+    font-size: 24px;
+  }
+
+  .hero-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .compass-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card-title {
+    font-size: 20px;
+    min-height: auto;
+  }
 }
 
 /* Dark mode adjustments */

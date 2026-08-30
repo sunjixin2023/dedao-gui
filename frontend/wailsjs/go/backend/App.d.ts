@@ -67,6 +67,8 @@ export function GetArticleIntro(arg1:number,arg2:string):Promise<services.Articl
 
 export function GetHomeInitialState():Promise<services.HomeInitState>;
 
+export function GetMediaGateWebPlayInfo(arg1:string,arg2:string,arg3:string):Promise<services.MediaWeb>;
+
 export function GetNavbar():Promise<services.NavbarData>;
 
 export function GetQrcode():Promise<backend.QrCodeResp>;
@@ -97,6 +99,8 @@ export function OdobShelfAdd(arg1:Array<string>):Promise<services.EbookShelfAddR
 
 export function OdobUserInfo():Promise<services.OdobVip>;
 
+export function OfficialOrderList(arg1:number,arg2:number):Promise<services.OfficialOrderList>;
+
 export function OnSecondInstanceLaunch(arg1:options.SecondInstanceData):Promise<void>;
 
 export function OpenDirectoryDialog(arg1:string):Promise<string>;
@@ -105,7 +109,11 @@ export function OpenFileDialog(arg1:string):Promise<string>;
 
 export function OutsideDetail(arg1:string):Promise<services.OutsideDetail>;
 
+export function ResolveVideoPlayback(arg1:string,arg2:string):Promise<backend.VideoPlaybackResolve>;
+
 export function SearchHot():Promise<services.SearchTot>;
+
+export function SearchMoreContent(arg1:string,arg2:number,arg3:number):Promise<services.CourseList>;
 
 export function SetDir(arg1:Array<string>):Promise<void>;
 

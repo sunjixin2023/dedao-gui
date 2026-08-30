@@ -10,11 +10,21 @@
                 infinite-scroll-distance="10">
                 <li v-for="i in topicList.list" :key="i.notes_topic_id" class="topic-list-item" @click="sendTopicDetail(i)">
                     <div class="item-content">
-                        <div class="item-title">
-                            <span class="hash">#</span>
-                            <span class="text">{{i.name}}</span>
-                            <el-tag v-if="i.tag==1" size="small" type="danger" effect="plain" class="badge">新</el-tag>
-                            <el-tag v-if="i.tag==2" size="small" type="warning" effect="plain" class="badge">热</el-tag>
+                        <div class="item-header">
+                            <div class="item-title">
+                                <span class="hash">#</span>
+                                <span class="text">{{i.name}}</span>
+                                <el-tag v-if="i.tag==1" size="small" type="danger" effect="plain" class="badge">新</el-tag>
+                                <el-tag v-if="i.tag==2" size="small" type="warning" effect="plain" class="badge">热</el-tag>
+                            </div>
+                            <el-button
+                              type="primary"
+                              link
+                              class="publish-link"
+                              @click.stop="publishWithTopic(i)"
+                            >
+                              用此话题发布
+                            </el-button>
                         </div>
                         <div class="item-intro">{{i.intro}}</div>
                     </div>
@@ -36,7 +46,7 @@ let topicAll = reactive(new services.TopicAll)
 const topicList = reactive(new services.TopicAll)
 topicList.list = []
 
-const emits = defineEmits(["sendDetail"]);
+const emits = defineEmits(["sendDetail", "publishTopic"]);
 
 const topicPage = ref(0)
 const topicHasMore = ref(false)
@@ -78,6 +88,10 @@ const getTopicAll =async () => {
 
 const sendTopicDetail = (row: any) => {
     emits("sendDetail", row)
+}
+
+const publishWithTopic = (row: any) => {
+    emits("publishTopic", row)
 }
 </script>
 
@@ -145,6 +159,13 @@ const sendTopicDetail = (row: any) => {
     gap: 8px;
 }
 
+.item-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
 .item-title {
     font-size: 15px;
     font-weight: 600;
@@ -153,6 +174,13 @@ const sendTopicDetail = (row: any) => {
     align-items: center;
     gap: 4px;
     line-height: 1.4;
+}
+
+.publish-link {
+    font-size: 12px;
+    padding: 0;
+    line-height: 1.2;
+    white-space: nowrap;
 }
 
 .hash {
