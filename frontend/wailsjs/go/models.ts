@@ -4552,6 +4552,7 @@ export namespace services {
 	    status: number;
 	    contentType: string;
 	    contentRange: string;
+	    contentLength: number;
 	    bodyB64: string;
 	
 	    static createFrom(source: any = {}) {
@@ -4563,6 +4564,7 @@ export namespace services {
 	        this.status = source["status"];
 	        this.contentType = source["contentType"];
 	        this.contentRange = source["contentRange"];
+	        this.contentLength = source["contentLength"];
 	        this.bodyB64 = source["bodyB64"];
 	    }
 	}
