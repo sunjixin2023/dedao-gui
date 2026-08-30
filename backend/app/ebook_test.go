@@ -301,3 +301,42 @@ func TestChapterProgressCoordinatorEmitCompletesBeforeFailureRecords(t *testing.
 		t.Fatalf("stored failure = %v, want %v", coordinator.failure, failure)
 	}
 }
+
+// A malformed or empty SVG payload used to panic inside PKCS7Unpad
+// (index out of range [-1]). These run on errgroup goroutines during a
+// download, where a panic kills the whole desktop process instead of
+// surfacing as a download error, so bad input must stay an error value.
+func TestDecryptAESRejectsMalformedPayloads(t *testing.T) {
+	for _, contents := range []string{
+		"",                         // empty page from a throttled response
+		"!!!not-base64!!!",         // undecodable
+		"YWJj",                     // decodes, but not a whole AES block
+		"AAAAAAAAAAAAAAAAAAAAAA==", // full block, nonsense padding byte
+	} {
+		if got := DecryptAES(contents); got != "" {
+			t.Errorf("DecryptAES(%q) = %q, want empty string", contents, got)
+		}
+	}
+}
+
+func TestPKCS7UnpadRejectsInvalidPadding(t *testing.T) {
+	if _, err := PKCS7Unpad(nil); err == nil {
+		t.Error("PKCS7Unpad(nil) = nil error, want error")
+	}
+	if _, err := PKCS7Unpad([]byte{}); err == nil {
+		t.Error("PKCS7Unpad(empty) = nil error, want error")
+	}
+	if _, err := PKCS7Unpad([]byte{1, 2, 99}); err == nil {
+		t.Error("PKCS7Unpad(padding longer than data) = nil error, want error")
+	}
+	if _, err := PKCS7Unpad([]byte{1, 2, 0}); err == nil {
+		t.Error("PKCS7Unpad(zero padding) = nil error, want error")
+	}
+	got, err := PKCS7Unpad([]byte{'a', 'b', 2, 2})
+	if err != nil {
+		t.Fatalf("PKCS7Unpad(valid) error = %v", err)
+	}
+	if string(got) != "ab" {
+		t.Errorf("PKCS7Unpad(valid) = %q, want %q", got, "ab")
+	}
+}

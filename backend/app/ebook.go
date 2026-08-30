@@ -289,7 +289,16 @@ func fetchEbookChapters(ctx context.Context, orders []services.EbookOrders, limi
 	group.SetLimit(limit)
 	for index, order := range orders {
 		index, order := index, order
-		group.Go(func() error {
+		group.Go(func() (fetchErr error) {
+			// A panic here runs on a goroutine started outside the Wails/JS
+			// call boundary; left unrecovered it takes down the whole desktop
+			// process instead of surfacing as a download error.
+			defer func() {
+				if r := recover(); r != nil {
+					fetchErr = fmt.Errorf("下载章节 %s 时发生异常: %v", order.ChapterID, r)
+				}
+			}()
+
 			if err := groupCtx.Err(); err != nil {
 				return err
 			}
@@ -368,10 +377,16 @@ func generateEbookPages(ctx context.Context, enid, chapterID, token string, inde
 }
 
 // PKCS7Unpad 实现PKCS7去填充
-func PKCS7Unpad(data []byte) []byte {
+func PKCS7Unpad(data []byte) ([]byte, error) {
 	length := len(data)
+	if length == 0 {
+		return nil, fmt.Errorf("待去除填充的数据为空")
+	}
 	unpadding := int(data[length-1])
-	return data[:(length - unpadding)]
+	if unpadding <= 0 || unpadding > length {
+		return nil, fmt.Errorf("填充长度非法: %d", unpadding)
+	}
+	return data[:(length - unpadding)], nil
 }
 
 // DecryptAES 实现AES - CBC解密
@@ -391,10 +406,19 @@ func DecryptAES(contents string) string {
 	}
 
 	blockSize := block.BlockSize()
+	if len(ciphertext) == 0 || len(ciphertext)%blockSize != 0 {
+		fmt.Println("AES解密错误: 密文长度不是块大小的整数倍")
+		return ""
+	}
+
 	mode := cipher.NewCBCDecrypter(block, iv[:blockSize])
 	plaintext := make([]byte, len(ciphertext))
 	mode.CryptBlocks(plaintext, ciphertext)
 
-	plaintext = PKCS7Unpad(plaintext)
+	plaintext, err = PKCS7Unpad(plaintext)
+	if err != nil {
+		fmt.Println("AES去填充错误:", err)
+		return ""
+	}
 	return string(plaintext)
 }
