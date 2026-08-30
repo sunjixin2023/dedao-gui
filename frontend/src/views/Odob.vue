@@ -50,17 +50,6 @@
             </div>
         </section>
 
-        <section class="audio-scenes">
-            <button class="scene-pill scene-pill-primary" @click="playFirstAvailable">通勤快听</button>
-            <button class="scene-pill" @click="openCurrentPlaylist">连续播单</button>
-            <button class="scene-pill" @click="refreshList">刷新推荐</button>
-            <div class="scene-summary">
-                <span>听书节奏</span>
-                <strong>{{ listeningPace }}</strong>
-                <p>{{ queueSummary }}</p>
-            </div>
-        </section>
-
         <div v-if="groupMode.active" class="group-header">
             <el-button type="primary" link @click="exitGroup">
                 <el-icon class="el-icon--left"><ArrowLeft /></el-icon>返回全部听书
@@ -310,18 +299,6 @@ const activeFilterName = computed(() => {
     return String(match?.name || "筛选中")
 })
 const nowPlayingTitle = computed(() => String(pStore.currentTrack?.title || "播放中").trim() || "播放中")
-const listeningPace = computed(() => {
-    const totalMinutes = Math.round(totalDurationSeconds.value / 60)
-    if (totalMinutes === 0) return "待开始"
-    if (totalMinutes < 180) return "轻量节奏"
-    if (totalMinutes < 720) return "日常节奏"
-    return "沉浸节奏"
-})
-const queueSummary = computed(() => {
-    const queueSize = Number(pStore.queue.length || 0)
-    if (queueSize > 0) return `已创建 ${queueSize} 条连播队列`
-    return "点击「通勤快听」自动创建播放队列"
-})
 
 const handleSessionError = async (error: unknown) => {
     const raw = String(error || '')
@@ -483,13 +460,6 @@ const playFirstAvailable = () => {
     handlePlay(first)
 }
 
-const openCurrentPlaylist = () => {
-    if (pStore.hasTrack) {
-        pStore.openPlaylist()
-        return
-    }
-    playFirstAvailable()
-}
 
 const handlePlay = async (row: any) => {
     pStore.setContext({ key: 'odob:study', title: '每日听书' })
@@ -778,65 +748,6 @@ onMounted(async () => {
     font-size: 18px;
     color: var(--audio-accent-strong);
     line-height: 1.2;
-}
-
-.audio-scenes {
-    display: flex;
-    align-items: stretch;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.scene-pill {
-    border: 1px solid color-mix(in srgb, var(--audio-accent) 26%, transparent);
-    background: var(--audio-chip-bg);
-    color: var(--text-primary);
-    border-radius: 999px;
-    height: 40px;
-    padding: 0 16px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.scene-pill:hover {
-    transform: translateY(-1px);
-    border-color: color-mix(in srgb, var(--audio-accent-strong) 46%, transparent);
-    box-shadow: 0 8px 16px rgba(15, 142, 161, 0.16);
-}
-
-.scene-pill-primary {
-    background: linear-gradient(120deg, color-mix(in srgb, var(--audio-accent) 78%, #fff 22%) 0%, var(--audio-accent-strong) 100%);
-    color: #fff;
-    border-color: transparent;
-}
-
-.scene-summary {
-    margin-left: auto;
-    min-width: 250px;
-    border-radius: 12px;
-    border: 1px dashed color-mix(in srgb, var(--audio-accent) 32%, transparent);
-    background: color-mix(in srgb, var(--audio-soft-bg) 72%, transparent);
-    padding: 8px 12px;
-}
-
-.scene-summary span {
-    font-size: 11px;
-    color: var(--text-secondary);
-}
-
-.scene-summary strong {
-    display: block;
-    margin-top: 2px;
-    font-size: 16px;
-    color: var(--audio-accent-strong);
-}
-
-.scene-summary p {
-    margin: 2px 0 0;
-    font-size: 12px;
-    color: var(--text-secondary);
 }
 
 .group-header {
@@ -1207,14 +1118,6 @@ onMounted(async () => {
 
     .hero-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .audio-scenes {
-        flex-direction: column;
-    }
-
-    .scene-summary {
-        margin-left: 0;
     }
 
     .odob-grid {

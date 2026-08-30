@@ -118,44 +118,6 @@
       </div>
     </section>
 
-    <section class="workspace-lanes">
-      <button class="lane-card lane-card-course" @click="goToCourseList">
-        <div class="lane-icon">
-          <el-icon><VideoPlay /></el-icon>
-        </div>
-        <div class="lane-body">
-          <p class="lane-kicker">COURSE TRACK</p>
-          <h3>课程学习区</h3>
-          <p>视频与文稿双轨推进，按章节高效回到上次进度。</p>
-          <div class="lane-meta">当前推荐课程 {{ courseSpotlightCount }} 个</div>
-        </div>
-      </button>
-
-      <button class="lane-card lane-card-audio" @click="goToAudioList">
-        <div class="lane-icon">
-          <el-icon><Headset /></el-icon>
-        </div>
-        <div class="lane-body">
-          <p class="lane-kicker">AUDIO TRACK</p>
-          <h3>听书学习区</h3>
-          <p>连续播放不打断，通勤、运动、碎片时间都可进入学习节奏。</p>
-          <div class="lane-meta">{{ audioLaneSummary }}</div>
-        </div>
-      </button>
-
-      <button class="lane-card lane-card-ebook" @click="goToEbookList">
-        <div class="lane-icon">
-          <el-icon><Reading /></el-icon>
-        </div>
-        <div class="lane-body">
-          <p class="lane-kicker">EBOOK TRACK</p>
-          <h3>电子书学习区</h3>
-          <p>沉浸式阅读与书评互动结合，形成从输入到复盘的阅读闭环。</p>
-          <div class="lane-meta">当前推荐电子书 {{ ebookSpotlightCount }} 本</div>
-        </div>
-      </button>
-    </section>
-
     <!-- 顶部区域：分类菜单 + 轮播图 + 用户信息 -->
     <div class="top-section">
       <!-- 左侧分类菜单 -->
@@ -209,7 +171,7 @@
 
       <!-- 中间轮播图 -->
       <div class="banner-wrapper">
-        <el-carousel v-if="bannerList.length > 0" :interval="5000" arrow="hover" height="380px" class="custom-carousel">
+        <el-carousel v-if="bannerList.length > 0" :interval="5000" arrow="hover" height="260px" class="custom-carousel">
           <el-carousel-item v-for="item in bannerList" :key="item">
             <el-image :src="item.img" fit="cover" class="banner-image" @click="BrowserOpenURL(item.url)" />
           </el-carousel-item>
@@ -539,14 +501,6 @@ const articleProgressText = computed(() => {
 });
 const nowPlayingTitle = computed(() => {
   return String(pStore.currentTrack?.title ?? "").trim() || "打开当前播放列表";
-});
-const courseSpotlightCount = computed(() => Number((courseContentList as any)?.product_list?.length ?? 0));
-const ebookSpotlightCount = computed(() => Number((ebookContentList as any)?.product_list?.length ?? 0));
-const audioLaneSummary = computed(() => {
-  if (pStore.hasTrack) {
-    return `正在播放：${nowPlayingTitle.value}`;
-  }
-  return "进入听书页可一键创建连播队列";
 });
 const hasHomeContent = computed(() => {
   return Boolean(
@@ -1382,150 +1336,12 @@ const gotoCategory = (item: any, label_id: string) => {
   box-shadow: var(--shadow-soft);
 }
 
-.workspace-lanes {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.lane-card {
-  position: relative;
-  border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--card-bg) 88%, transparent);
-  color: var(--text-primary);
-  text-align: left;
-  padding: 16px;
-  min-height: 150px;
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 12px;
-  cursor: pointer;
-  overflow: hidden;
-  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
-}
-
-.lane-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.85;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.lane-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-.lane-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-}
-
-.lane-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.lane-kicker {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  font-family: var(--font-family-mono);
-}
-
-.lane-card h3 {
-  margin: 6px 0 6px;
-  font-size: 20px;
-  line-height: 1.2;
-  font-family: var(--font-family-display);
-}
-
-.lane-card p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.55;
-}
-
-.lane-meta {
-  margin-top: auto;
-  padding-top: 8px;
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lane-card-course::before {
-  background:
-    radial-gradient(220px 120px at 0% 0%, rgba(78, 133, 255, 0.18) 0%, transparent 70%),
-    linear-gradient(120deg, rgba(236, 244, 255, 0.9) 0%, rgba(255, 255, 255, 0.8) 100%);
-}
-
-.lane-card-course .lane-icon {
-  background: rgba(78, 133, 255, 0.16);
-  color: #2f5de2;
-}
-
-.lane-card-audio::before {
-  background:
-    radial-gradient(220px 120px at 0% 0%, rgba(15, 142, 161, 0.2) 0%, transparent 70%),
-    linear-gradient(120deg, rgba(235, 250, 252, 0.92) 0%, rgba(255, 255, 255, 0.82) 100%);
-}
-
-.lane-card-audio .lane-icon {
-  background: rgba(15, 142, 161, 0.16);
-  color: #0f8ea1;
-}
-
-.lane-card-ebook::before {
-  background:
-    radial-gradient(220px 120px at 0% 0%, rgba(165, 98, 47, 0.2) 0%, transparent 70%),
-    linear-gradient(120deg, rgba(255, 248, 240, 0.92) 0%, rgba(255, 255, 255, 0.82) 100%);
-}
-
-.lane-card-ebook .lane-icon {
-  background: rgba(165, 98, 47, 0.16);
-  color: #8d4a22;
-}
-
-.lane-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 14px 26px rgba(8, 16, 30, 0.12);
-}
-
-.lane-card-course:hover {
-  border-color: rgba(78, 133, 255, 0.44);
-}
-
-.lane-card-audio:hover {
-  border-color: rgba(15, 142, 161, 0.46);
-}
-
-.lane-card-ebook:hover {
-  border-color: rgba(165, 98, 47, 0.46);
-}
-
 /* --- Top Section --- */
 .top-section {
   display: flex;
   gap: 24px;
   margin-bottom: 20px;
-  height: 380px;
+  height: 260px;
 }
 
 .menu-wrapper {
@@ -2121,10 +1937,6 @@ const gotoCategory = (item: any, label_id: string) => {
     grid-column: 1 / -1;
   }
 
-  .workspace-lanes {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .deck-playing-btn {
     margin-top: 4px;
     max-width: 100%;
@@ -2177,10 +1989,6 @@ const gotoCategory = (item: any, label_id: string) => {
 
   .top-section {
     gap: 14px;
-  }
-
-  .workspace-lanes {
-    grid-template-columns: 1fr;
   }
 
   .menu-wrapper,
@@ -2238,17 +2046,6 @@ const gotoCategory = (item: any, label_id: string) => {
 
   .fallback-actions {
     gap: 8px;
-  }
-
-  .lane-card {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-
-  .lane-icon {
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
   }
 
   .fallback-chip {

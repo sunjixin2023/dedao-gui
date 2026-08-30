@@ -42,21 +42,6 @@
       </div>
     </section>
 
-    <section class="reading-strip">
-      <article class="strip-card">
-        <span>阅读建议</span>
-        <strong>{{ readingSuggestion }}</strong>
-      </article>
-      <article class="strip-card">
-        <span>阅读阶段</span>
-        <strong>{{ readingStage }}</strong>
-      </article>
-      <article class="strip-card">
-        <span>当前状态</span>
-        <strong>{{ shelfStatus }}</strong>
-      </article>
-    </section>
-
     <div class="header-actions" v-if="groupMode.active">
       <el-button type="primary" link @click="exitGroup">
         <el-icon><ArrowLeft /></el-icon> 返回全部电子书
@@ -322,24 +307,6 @@ const activeFilterName = computed(() => {
   const match = filterOptions.value.find((item: any) => item.filter === currentFilter.value)
   return String(match?.name || "筛选中")
 })
-const readingStage = computed(() => {
-  if (normalBookCount.value === 0) return "尚未开始"
-  if (avgProgress.value < 20) return "起步阶段"
-  if (avgProgress.value < 70) return "推进阶段"
-  return "复盘阶段"
-})
-const readingSuggestion = computed(() => {
-  if (!isLoggedIn.value) return "登录后同步进度，自动推荐下一章。"
-  if (normalBookCount.value === 0) return "先浏览书架并收藏你要读的书。"
-  if (avgProgress.value < 20) return "建议先读目录与序言，建立全书地图。"
-  if (avgProgress.value < 70) return "保持章节推进，每次阅读 20 分钟更稳。"
-  return "已接近完成，建议整理书摘与复盘笔记。"
-})
-const shelfStatus = computed(() => {
-  if (groupMode.active) return `分组：${groupMode.title || "已选择"}`
-  return `筛选：${activeFilterName.value}`
-})
-
 const safePercent = (val: any) => {
   const n = Number(val || 0)
   if (!Number.isFinite(n)) return 0
@@ -772,36 +739,6 @@ onMounted(async () => {
   line-height: 1.2;
 }
 
-.reading-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.strip-card {
-  border-radius: 12px;
-  border: 1px dashed color-mix(in srgb, var(--ebook-accent) 28%, transparent);
-  background:
-    linear-gradient(160deg, color-mix(in srgb, var(--ebook-paper) 84%, transparent) 0%, color-mix(in srgb, var(--ebook-paper-soft) 74%, transparent) 100%);
-  padding: 12px 14px;
-  min-height: 64px;
-}
-
-.strip-card span {
-  display: block;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.strip-card strong {
-  display: block;
-  margin-top: 6px;
-  color: var(--ebook-accent-strong);
-  font-size: 15px;
-  line-height: 1.45;
-  font-family: var(--font-family-wenkai);
-}
-
 .header-actions {
   display: flex;
   align-items: center;
@@ -1171,10 +1108,6 @@ onMounted(async () => {
 
 @media (max-width: 1180px) {
   .ebook-hero {
-    grid-template-columns: 1fr;
-  }
-
-  .reading-strip {
     grid-template-columns: 1fr;
   }
 
